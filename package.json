@@ -1,0 +1,15 @@
+{
+  "name": "liminal-tokyo",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  }
+}
