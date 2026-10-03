@@ -609,6 +609,22 @@ vibeObjects.forEach(o=>o.visible=false)
 
 const $ = id => document.getElementById(id)
 
+const cursorEl = $('cursor')
+const cursorLabel = $('cursor-label')
+const cursorPos = { x: innerWidth/2, y: innerHeight/2 }
+const cursorTarget = { x: innerWidth/2, y: innerHeight/2 }
+function setCursor(state, label){
+  cursorEl.className = state === 'default' ? '' : 'wide'
+  cursorLabel.textContent = label || ''
+}
+window.addEventListener('pointermove', e => {
+  cursorTarget.x = e.clientX
+  cursorTarget.y = e.clientY
+})
+window.addEventListener('pointerdown', () => {
+  if (soundOn) blip()
+})
+
 const state = {
   mode:'hero',
   p:0,
@@ -708,21 +724,44 @@ function makePerson(x, z, coat, accent, facing){
 }
 
 const PEOPLE = [
-  { id:'yuki',    name:'Yuki',   role:'Private cultural guide',  x:-2.4, z:-64, facing: 1.2,  coat:0x2b2620, accent:0xc9a961, from:0.16, to:0.34 },
-  { id:'aoi',     name:'Aoi',    role:'Executive chef',          x:0.7,  z:-68, facing:-0.9,  coat:0x33291f, accent:0xd8c9a8, from:0.28, to:0.46 },
-  { id:'haruki',  name:'Haruki', role:'Sake curator',            x:2.6,  z:-74, facing:-1.4,  coat:0x241f1c, accent:0xa8894f, from:0.42, to:0.60 },
-  { id:'ren',     name:'Ren',    role:'Design & fashion',        x:-2.6, z:-90, facing: 1.5,  coat:0x2a2530, accent:0xb9aec4, from:0.58, to:0.76 },
-  { id:'mika',    name:'Mika',   role:'Tea practitioner',        x:2.2,  z:-100,facing:-1.1,  coat:0x36302a, accent:0xc9a961, from:0.74, to:0.92 }
+  { id:'akira',  name:'Akira',  role:'Local resident',           district:'Nishi-Shinjuku', x:-2.2, z:-8,  facing: 1.1,  coat:0x2b2620, accent:0xa8894f, from:0.01, to:0.14, idle:'phone' },
+  { id:'yuki',   name:'Yuki',   role:'Private cultural guide',  district:'Yoyogi',        x:-2.4, z:-30, facing: 1.2,  coat:0x2b2620, accent:0xc9a961, from:0.16, to:0.32, idle:'guide' },
+  { id:'aoi',    name:'Aoi',    role:'Executive chef',          district:'Yoyogi',        x:0.7,  z:-46, facing:-0.9,  coat:0x33291f, accent:0xd8c9a8, from:0.30, to:0.46, idle:'chef' },
+  { id:'rei',    name:'Rei',    role:'Fashion curator',         district:'Shibuya',       x:2.4,  z:-54, facing:-1.2,  coat:0x2a2530, accent:0xb9aec4, from:0.42, to:0.54, idle:'curator' },
+  { id:'haruki', name:'Haruki', role:'Sake curator',            district:'Shibuya',       x:2.6,  z:-70, facing:-1.4,  coat:0x241f1c, accent:0xa8894f, from:0.52, to:0.64, idle:'host' },
+  { id:'sora',   name:'Sora',   role:'Photographer',             district:'Shibuya',       x:-2.8, z:-78, facing: 1.4,  coat:0x22262c, accent:0xc9d4dc, from:0.60, to:0.72, idle:'photo' },
+  { id:'ren',    name:'Ren',    role:'Independent designer',    district:'Akihabara',     x:-2.6, z:-90, facing: 1.5,  coat:0x2a2530, accent:0xb9aec4, from:0.68, to:0.80, idle:'curator' },
+  { id:'mika',   name:'Mika',   role:'Tea practitioner',        district:'Akihabara',     x:2.2,  z:-100,facing:-1.1,  coat:0x36302a, accent:0xc9a961, from:0.76, to:0.92, idle:'host' },
+  { id:'kenji',  name:'Kenji',  role:'Record store owner',      district:'Skyward',       x:-2.4, z:-104,facing: 1.0,  coat:0x2e2a26, accent:0xc9a961, from:0.86, to:0.98, idle:'phone' }
 ]
+const chipLayer = $('chip-layer')
 PEOPLE.forEach(p => {
   p.mesh = makePerson(p.x, p.z, p.coat, p.accent, p.facing)
-  p.chip = $('chip-' + p.id)
-  p.chip.addEventListener('click', () => openDialogue(p.id))
+  const chip = document.createElement('button')
+  chip.className = 'guide-chip'
+  chip.innerHTML = '<span class="dot"></span><span>Speak with ' + p.name + ' →<small>' + p.role + '</small></span>'
+  chip.addEventListener('click', () => openDialogue(p.id))
+  chipLayer.appendChild(chip)
+  p.chip = chip
 })
 
 /* --------------------------- dialogue ---------------------------- */
 
 const DIALOGUE = {
+  akira: {
+    open: "I live two streets that way, so I know this hour better than anyone. What are you doing tonight?",
+    options: [
+      { t:'Something quiet, ideally.', go:'quiet' },
+      { t:'Where do you eat after work?', go:'eat' },
+      { t:'Is it busy around here?', go:'busy' }
+    ],
+    quiet: { say:"Quiet. Then cross the tracks and keep walking — the streets past the west exit get residential very fast. Golden Gai is the opposite of quiet, so not that.",
+      follow:"Shall I mark a route for you?", add:'West-Shinjuku night walk' },
+    eat: { say:"Honest answer? I eat standing at a counter in Omoide Yokocho. It is under the railway, it is never quiet, and it is open when I finish.",
+      follow:"Add it to the evening?", add:'Omoide Yokocho, under the tracks' },
+    busy: { say:"Right now, quiet. The last train has not come through yet, so it empties and refills about every twenty minutes. Wait five and it fills; wait ten and it empties.",
+      follow:"I can show you the good timing.", add:'Golden Gai after last train' }
+  },
   yuki: {
     open: "Good evening. I know Tokyo can feel overwhelming at first — everywhere is lit, everywhere is loud. Tell me what you are looking for tonight.",
     options: [
@@ -755,6 +794,48 @@ const DIALOGUE = {
       follow:"Reserve the counter?", add:'Chef\'s tasting counter' },
     light: { say:"Light, then. Clear soup, grilled fish, pickles. We keep it delicate and let the sake do the evening's work.",
       follow:"Reserve the counter?", add:'Light counter dinner' }
+  },
+  rei: {
+    open: "Tokyo changes clothes every season and most visitors only see the department stores. What are you actually drawn to?",
+    options: [
+      { t:'Quiet, considered pieces.', go:'quiet' },
+      { t:'Traditional craft.', go:'craft' },
+      { t:'Something that does not exist yet.', go:'avant' }
+    ],
+    quiet: { say:"Then Daikanyama, not Omotesando. Studios rather than storefronts — you will meet the maker, and nothing will be for sale before it is finished.",
+      follow:"Arrange the visit?", add:'Daikanyama studio visit' },
+    craft: { say:"Nihonbashi. Indigo dyeing, hand-cut blades, a family working kintsugi since 1953. We see the workshop before anyone shows a price.",
+      follow:"Arrange the visit?", add:'Nihonbashi craft atelier' },
+    avant: { say:"Then Kuramae, in the converted warehouses. Three collections that will not exist next year, and a curator who will show you the ones that never sold.",
+      follow:"Arrange the visit?", add:'Kuramae private viewing' }
+  },
+  sora: {
+    open: "Give me one minute and I will get the shot — the light on this street lasts about four minutes at this hour. Meanwhile: what is this for?",
+    options: [
+      { t:'A gift for someone difficult.', go:'gift' },
+      { t:'I want Tokyo, not the tourists.', go:'real' },
+      { t:'Something for myself.', go:'self' }
+    ],
+    gift: { say:"Then not the standard souvenir. I would shoot something quiet — a shopfront at closing time, hands, a bowl nobody is watching. It travels and it cannot be returned.",
+      follow:"Add the photo session?", add:'Private street photography' },
+    real: { say:"Then we walk away from the crossing. Give me four minutes and I will show you Tokyo — the reflections, the vending machines, the people who live above the shops.",
+      follow:"Add the walk?", add:'Off-crossing photo walk' },
+    self: { say:"Then we take your time. I will not shoot until you stop walking — the picture is usually behind you, not in front.",
+      follow:"Add the session?", add:'Unhurried portrait session' }
+  },
+  kenji: {
+    open: "Everyone asks for the same three records. Nobody asks for the one in the back. What are you listening to?",
+    options: [
+      { t:'Something I have never heard.', go:'new' },
+      { t:'Jazz from another country.', go:'jazz' },
+      { t:'Whatever you would play me.', go:'you' }
+    ],
+    new: { say:"Good. Then we go left at the end of this aisle — city pop, and the record shops that kept it alive while everyone was looking elsewhere.",
+      follow:"Shall we go?", add:'Shimokitazawa record trail' },
+    jazz: { say:"I have a small jazz room two streets over that only plays vinyl. Four seats. Tell them Kenji sent you and sit at the back.",
+      follow:"Arrange the listening room?", add:'Vinyl listening room' },
+    you: { say:"Then I would play you the record I bought on my first month in Tokyo. It cost almost nothing and it is the only reason I stayed.",
+      follow:"Play it for us?", add:'Records with Kenji' }
   },
   haruki: {
     open: "Good evening. Before we taste anything — how do you usually drink? There is no wrong answer, it only changes what I pour.",
@@ -841,12 +922,12 @@ function openDialogue(id){
   const d = DIALOGUE[id]
   if (!d) return
   state.guide = id
-  pendingAdd = d
-  $('dlg-name').textContent = nameOf(id)
-  $('dlg-role').textContent = PEOPLE.find(q => q.id === id).role
+  const p = PEOPLE.find(q => q.id === id)
+  $('dlg-name').textContent = p ? p.name : id
+  $('dlg-role').textContent = p ? p.role + ' · ' + p.district : ''
   dlgBody.innerHTML = ''
   dlgOpts.innerHTML = ''
-  dlgLine(nameOf(id), d.open)
+  dlgLine(p ? p.name : id, d.open)
   dlgButtons(d.options)
   $('dialogue').classList.add('on')
   document.body.classList.add('locked')
@@ -972,9 +1053,25 @@ function renderItinerary(){
     const li = document.createElement('li')
     li.innerHTML = '<span class="n mono">' + String(i+1).padStart(2,'0') + '</span>' +
       '<span><span class="t">' + it.title + '</span><span class="m">' + fmtTime(it.time) + ' · Illustrative</span></span>' +
-      '<button class="rm" aria-label="Remove ' + it.title + '">×</button>'
+      '<span class="itin-ctl">' +
+        '<button class="mo" data-i="' + i + '" data-d="-1" aria-label="Move up" ' + (i === 0 ? 'disabled' : '') + '>↑</button>' +
+        '<button class="mo" data-i="' + i + '" data-d="1" aria-label="Move down" ' + (i === itinerary.length - 1 ? 'disabled' : '') + '>↓</button>' +
+        '<button class="rm" aria-label="Remove ' + it.title + '">×</button>' +
+      '</span>'
+    li.querySelectorAll('.mo').forEach(b => b.addEventListener('click', () => {
+      const idx = Number(b.dataset.i)
+      const dir = Number(b.dataset.d)
+      const j = idx + dir
+      if (j < 0 || j >= itinerary.length) return
+      const tmp = itinerary[idx]
+      itinerary[idx] = itinerary[j]
+      itinerary[j] = tmp
+      itinerary.forEach((x, k) => { x.time = nextSlot() + k * 90 })
+      saveIt(); renderItinerary()
+    }))
     li.querySelector('.rm').addEventListener('click', () => {
       itinerary = itinerary.filter(x => x.title !== it.title)
+      itinerary.forEach((x, k) => { x.time = nextSlot() + k * 90 })
       saveIt(); renderItinerary()
     })
     list.appendChild(li)
@@ -1068,42 +1165,76 @@ const PLACES = [
 
 let map = null
 let mapMarkers = {}
+let mapLoading = false
 
 function initMap(){
-  if (map) return
+  if (map || mapLoading) return
   const el = $('map')
   if (!el) return
+  mapLoading = true
+  const note = $('map-status')
+  if (note) note.textContent = 'Loading real Tokyo geography…'
+
   map = new maplibregl.Map({
     container: el,
-    center: [139.74, 35.69],
-    zoom: 11.6,
-    attributionControl: true,
-    dragRotate: true,
+    style: {
+      version: 8,
+      sources: {
+        osm: {
+          type: 'raster',
+          tiles: [
+            'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+            'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+            'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
+          ],
+          tileSize: 256,
+          attribution: '© OpenStreetMap contributors · © CARTO'
+        }
+      },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.78 } }]
+    },
+    center: [139.7455, 35.6875],
+    zoom: 11.4,
+    minZoom: 9,
     maxZoom: 17,
-    minZoom: 9
+    attributionControl: true,
+    dragRotate: true
   })
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+
   map.on('load', () => {
-    map.addSource('carto', {
-      type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
-      ],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors · © CARTO'
-    })
-    map.addLayer({ id: 'carto', type: 'raster', source: 'carto', paint: { 'raster-opacity': 0.72 } })
+    mapLoading = false
+    const n = $('map-status')
+    if (n) n.textContent = '22 locations · OpenStreetMap'
     PLACES.forEach(p => {
-      const m = new maplibregl.Marker({ color: p.c === 'Hidden' ? '#c9a961' : '#f2ece1', anchor: 'bottom' })
+      const marker = new maplibregl.Marker({
+        color: p.c === 'Hidden' ? '#c9a961' : '#f2ece1',
+        anchor: 'bottom'
+      })
         .setLngLat([p.lng, p.lat])
         .setPopup(new maplibregl.Popup({ offset: 14, closeButton: false }).setHTML('<div>' + p.n + '</div>'))
         .addTo(map)
-      m.getElement().addEventListener('click', () => showPlace(p))
-      mapMarkers[p.n] = m
+      marker.getElement().addEventListener('click', () => showPlace(p))
+      marker.getElement().addEventListener('mouseenter', () => setCursor('wide', 'OPEN'))
+      marker.getElement().addEventListener('mouseleave', () => setCursor('default'))
+      mapMarkers[p.n] = marker
     })
   })
-  setTimeout(() => map && map.resize(), 400)
+
+  map.on('error', () => {
+    const n = $('map-status')
+    if (n && !n.textContent.includes('22')) n.textContent = 'Map tiles unavailable offline — markers still listed'
+  })
+
+  setTimeout(() => map && map.resize(), 300)
+}
+
+if ('IntersectionObserver' in window){
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting){ initMap(); setTimeout(() => map && map.resize(), 260) }
+    })
+  }, { rootMargin: '260px' })
+  io.observe($('atlas'))
 }
 
 function showPlace(p){
@@ -1117,6 +1248,19 @@ function showPlace(p){
   $('d-time').textContent = p.t
   $('d-exp').textContent = p.e
   $('d-add').onclick = () => { addToItinerary(p.n); map.flyTo([p.lng, p.lat], 13.4, { duration: 1400 }) }
+  $('d-explore').onclick = () => exploreArea(p.n)
+}
+
+/* map → city: the journey returns to the matching district */
+function exploreArea(name){
+  const tourTop = chaptersEl.offsetTop
+  const span = chaptersEl.offsetHeight - innerHeight
+  const at = AREA_AT[name] !== undefined ? AREA_AT[name] : 0.5
+  $('map-panel').classList.remove('on')
+  $('map-detail').classList.remove('on')
+  $('map-empty').classList.remove('hidden')
+  window.scrollTo({ top: tourTop + at * span, behavior: 'smooth' })
+  setTimeout(() => toast('Traveling to ' + name), 800)
 }
 
 function buildFilters(){
@@ -1245,7 +1389,283 @@ function spawnCan(g){
   cans.push(can)
 }
 
-/* ------------------------------ toast ----------------------------- */
+const AREA_AT = {
+  'Shinjuku Gyoen':0.02, 'Tokyo Station Marunouchi':0.06, 'Omoide Yokocho':0.10, 'Golden Gai':0.13,
+  'Shinjuku':0.16, 'Shibuya Sky':0.20, 'Shibuya Crossing':0.22, 'Nonbei Yokocho':0.24,
+  'Harajuku / Omotesando':0.30, 'Meiji Jingu':0.34, 'Daikanyama':0.38,
+  'Shimokitazawa':0.44, 'Roppongi Hills':0.50, 'Azabudai Hills':0.56,
+  'Ginza':0.62, 'Tsukiji Outer Market':0.66, 'Nihonbashi':0.70,
+  'Akihabara':0.76, 'Kuramae':0.80, 'Kagurazaka':0.84, 'Asakusa':0.88, 'Senso-ji':0.92,
+  'Asakusa Nakamise':0.93, 'Shinjuku Gyoen Night':0.03, 'Yoyogi Park':0.35
+}
+
+const toast_placeholder = null
+
+/* --------------------------- locations ---------------------------- */
+
+const gmaps = (lat, lng, name) => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(name) + '@' + lat + ',' + lng
+const osmUrl = (lat, lng) => 'https://www.openstreetmap.org/?mlat=' + lat + '&mlon=' + lng + '#map=17/' + lat + '/' + lng
+const findUrl = name => 'https://duckduckgo.com/?q=' + encodeURIComponent(name + ' official site Tokyo')
+
+const LOCATIONS = [
+  { id:'jiro', name:'Sukiyabashi Jiro', cat:'Dining', ward:'Ginza, Chuo City',
+    addr:'Tsukamoto Sogyo Building B1F, 4-2-15 Ginza', lat:35.6717, lng:139.7639,
+    cuisine:'Edomaie sushi', famous:'Counter of three. Omakase only, decided by the chef.',
+    desc:'The most famous sushi counter in the world, deliberately almost impossible to find. Three seats, no menu, and whatever Mr. Kishida decides you are ready for that morning.' },
+  { id:'menchi', name:'Asakusa Menchi', cat:'Dining', ward:'Asakusa, Taito City',
+    addr:'2-18-1 Kokusai-dori', lat:35.7122, lng:139.7942,
+    cuisine:'Kushiyaki — deep-fried skewers', famous:'Beef tendon and nankotsu. Standing at the counter only.',
+    desc:'A single counter in Asakusa serving kushiyaki, fried to order in front of you. Order by number rather than name, and take your time — this is not a place to rush.' },
+  { id:'narisawa', name:'Narisawa', cat:'Dining', ward:'Minami Aoyama, Meguro City',
+    addr:'2-6-15 Minami Aoyama', lat:35.6660, lng:139.7159,
+    cuisine:'Kaiseki', famous:'Satoyama — wild mountain vegetables gathered from the Japanese Alps.',
+    desc:'Kunihiko Haraguchi\'s eight-seat counter draws on satoyama, the wild mountain landscape Japan lost in the Meiji era. Entirely vegetarian unless you ask otherwise.' },
+  { id:'birdland', name:'Ginza Birdland', cat:'Dining', ward:'Ginza, Chuo City',
+    addr:'4-5-11 Ginza', lat:35.6712, lng:139.7663,
+    cuisine:'Yakitori, charcoal', famous:'The tsukune. Litre tickets handed out in the early evening.',
+    desc:'One of the three yakitori places in Tokyo that can properly claim to be great. The skewers go from raw to char over one burner, in order, for hours.' },
+  { id:'maisen', name:'Tonkatsu Maisen Aoyama Honten', cat:'Dining', ward:'Jingumae, Shibuya City',
+    addr:'4-8-7 Jingumae', lat:35.6700, lng:139.7086,
+    cuisine:'Tonkatsu', famous:'The black pork cutlet. Sourdough raised, panko cut from a loaf.',
+    desc:'A tonkatsu specialist whose panko is cut from black sourdough bread rather than machine crumbs — lighter, less oily, and immediately recognisable.' },
+  { id:'kagari', name:'Kagurazaka Kagari', cat:'Dining', ward:'Kagurazaka, Shinjuku City',
+    addr:'Kagurazaka, near the Ushigome crossing', lat:35.7053, lng:139.7345,
+    cuisine:'Hakata-style soba', famous:'Soba cut to order by hand. Duck and duck-egg tsuke.',
+    desc:'One of the better soba counters in Tokyo, on a quiet back street in Kagurazaka — exactly the kind of place this city hides behind unmarked doors.' },
+  { id:'ippodo', name:'Ippodo Tea Yanaka', cat:'Dining', ward:'Yanaka, Taito City',
+    addr:'1-14-1 Fukagawa', lat:35.7286, lng:139.7660,
+    cuisine:'Matcha and whisked tea', famous:'The Kyoto blend — gyokuro, matcha and bancha in one bowl.',
+    desc:'A century-old tea house in Yanaka, one of the few places in Tokyo where the matcha is ground on a stone mill in front of you and whisked properly in a chawan.' },
+  { id:'hamilton', name:'Tsukiji Outer Market', cat:'Dining', ward:'Tsukiji, Chuo City',
+    addr:'4-chome Tsukiji', lat:35.6654, lng:139.7707,
+    cuisine:'Street food and knife shops', famous:'Tamagoyaki, uni, and knife shops that have been here for three generations.',
+    desc:'The working market behind the wholesale exchange. By nine in the morning the fish trade is over and the market becomes a series of tiny breakfast counters.' },
+  { id:'nonbei', name:'Nonbei Yokocho', cat:'Nightlife', ward:'Dogenzaka, Shibuya City',
+    addr:'1-52-5 Dogenzaka', lat:35.6600, lng:139.6990,
+    cuisine:'Bars and yakitori', famous:'Brick-and-masonry lanes a few minutes from the crossing.',
+    desc:'A warren of narrow lanes of tiny bars between the Shibuya crowds and the station. Loud, cheap, and entirely genuine.' },
+  { id:'omoide', name:'Omoide Yokocho', cat:'Nightlife', ward:'Nishi-Shinjuku, Shinjuku City',
+    addr:'1-2 Nishishinjuku', lat:35.6918, lng:139.7030,
+    cuisine:'Izakayas under the tracks', famous:'Yakitori, tachinomi, and a lantern-lit walkway beside the railway.',
+    desc:'"Memory Lane" — a stone alley of bars barely wider than a person, wedged under the elevated Shinjuku line. Peak hours run from roughly seven in the evening.' },
+  { id:'golden', name:'Golden Gai', cat:'Nightlife', ward:'Kabukicho, Shinjuku City',
+    addr:'1-chome Kabukicho', lat:35.6938, lng:139.7024,
+    cuisine:'Six-seat bars', famous:'Around two hundred bars in six alleys. Almost none have a sign.',
+    desc:'Not a street but a warren of six narrow alleys, each holding a handful of six- or eight-seat bars. Membership is by introduction, which is part of the point.' },
+  { id:'yodobashi', name:'Yodobashi Akiba', cat:'Shopping', ward:'Sotokanda, Chiyoda City',
+    addr:'1-11-1 Sotokanda', lat:35.6989, lng:139.7738,
+    cuisine:'—', famous:'Ten storeys of electronics, ending in a roof garden.',
+    desc:'The temple of Akihabara. Whatever you came for is in here somewhere, across ten floors of electronics, manga, games and model kits.' },
+  { id:'sensoji', name:'Sensō-ji', cat:'Culture', ward:'Asakusa, Taito City',
+    addr:'2-3-1 Asakusa', lat:35.7148, lng:139.7967,
+    cuisine:'—', famous:'Nakamise, the approach. Tokyo\'s oldest continuously running temple.',
+    desc:'Founded in 645 and rebuilt after the 1923 earthquake. The approach, Nakamise, has been a street of small shops for three centuries and is at its best before nine in the morning.' },
+  { id:'meiji', name:'Meiji Jingu', cat:'Culture', ward:'Yoyogi, Shibuya City',
+    addr:'1-1 Yoyogikamizonocho', lat:35.6764, lng:139.6993,
+    cuisine:'—', famous:'A forest of over a hundred thousand donated trees, one hundred metres from Shibuya.',
+    desc:'A Shinto shrine of deceptively recent date, standing in a planted forest. The contrast with the crossing two hundred metres away is the whole point of visiting.' },
+  { id:'tsuwajiri', name:'Shimokitazawa Tsuwajiri', cat:'Shopping', ward:'Shimokitazawa, Setagaya City',
+    addr:'Shimokitazawa Station area', lat:35.6616, lng:139.6683,
+    cuisine:'—', famous:'Second-hand clothing and vinyl, three floors of it.',
+    desc:'Shimokitazawa runs on record shops, live houses and vintage. The railway passes four metres above the street, and the whole neighbourhood moves at half Tokyo\'s speed.' },
+  { id:'kuramae', name:'Kuramae', cat:'Design', ward:'Kuramae, Taito City',
+    addr:'Kuramae, near the river', lat:35.7046, lng:139.7917,
+    cuisine:'—', famous:'Independent designers in converted warehouses and old apartment blocks.',
+    desc:'Where Tokyo\'s independent designers now keep studios — ceramics, textiles and furniture, mostly out of sight of the street.' }
+]
+
+function showLocation(id){
+  const l = LOCATIONS.find(x => x.id === id)
+  if (!l) return
+  $('loc-cat').textContent = l.cat
+  $('loc-name').textContent = l.name
+  $('loc-district').textContent = l.ward
+  $('loc-desc').textContent = l.desc
+  $('loc-famous').textContent = l.famous
+  $('loc-addr').textContent = l.addr
+  $('loc-ward').textContent = l.ward
+  $('loc-cuisine').textContent = l.cuisine
+  $('loc-map').href = gmaps(l.lat, l.lng, l.name)
+  $('loc-find').href = findUrl(l.name)
+  $('loc-add').onclick = () => { addToItinerary(l.name); closeLocation() }
+  $('location').classList.add('on')
+  document.body.classList.add('locked')
+}
+function closeLocation(){
+  $('location').classList.remove('on')
+  document.body.classList.remove('locked')
+}
+$('loc-close').addEventListener('click', closeLocation)
+
+/* ------------------------------ food ------------------------------ */
+
+const DISHES = [
+  { id:'ramen', n:'Ramen', cat:'Noodle', serve:'Poured from the pot in front of you. The broth is the dish; the toppings are a footnote.',
+    ask:'Tonkotsu for a rich pork-bone broth, shoyu for a clear one, miso for depth. Menma, ajitama, chashu.',
+    where:'Ramen Nagi in Shinjuku and Yoyogi, or the late-night counters under the tracks in Omoide Yokocho.',
+    etq:'Slurping is encouraged and considered a compliment. Eat quickly — the noodle continues to cook in the bowl.' },
+  { id:'sushi', n:'Sushi', cat:'Seafood', serve:'Nigiri omakase, decided by the chef, or jai course ordered by the customer.',
+    ask:'Nigiri omakase, and whichever is seasonal. Edomae style favours neta-mare over vinegar.',
+    where:'Sukiyabashi Jiro in Ginza for the counter experience; Sushi Saito in Roppongi for the reservation.',
+    etq:'No wasabi in a traditional omakase — the chef wasabi is subtle. Eat the fish, not the rice.' },
+  { id:'tempura', n:'Tempura', cat:'Seafood', serve:'Fried to order, drained on paper, eaten immediately with salt or grated daikon.',
+    ask:'Ebi, anago, seasonal white fish. Order the "awase" and let the kitchen choose.',
+    where:'Tempura counters in Ginza and Nihonbashi; the standing-only places are usually the best.',
+    etq:'Eat as it arrives. It does not travel. Dip sparingly — the prawn salt carries the flavour.' },
+  { id:'yakitori', n:'Yakitori', cat:'Meat', serve:'Skewers over binchōtan, cooked to order, with only salt or tare.',
+    ask:'The chicken, the liver, the tsukune, and the leek. Order by number.',
+    where:'Ginza Birdland in Ginza, or any of the counters in Nonbei Yokocho in Shibuya.',
+    etq:'Eat from the skewer, one at a time. Order slowly, and never rush the queue.' },
+  { id:'tonkatsu', n:'Tonkatsu', cat:'Meat', serve:'Breaded pork cutlet, sliced, with shredded cabbage and a dipping sauce.',
+    ask:'The tenderloin cut, or the katsudon if you want it over rice.',
+    where:'Maisen Aoyama Honten in Shibuya, and the branches across Tokyo.',
+    etq:'The sauce is for the pork only. Dip the cabbage separately, or the cutlet softens.' },
+  { id:'wagashi', n:'Wagashi', cat:'Sweet', serve:'Seasonal sweets arranged on lacquer and eaten with matcha.',
+    ask:'Whatever is in season. In spring, sakura; in summer, watermelon and firefly jelly.',
+    where:'Hama-no-Ya in Nihonbashi and Ginza for the classic style.',
+    etq:'Seasonal confectionery is made to be eaten at one particular time of year. Ask what is right now.' },
+  { id:'matcha', n:'Matcha', cat:'Tea', serve:'Whisked in a chawan with a chasen bamboo whisk, drunk as ceremony.',
+    ask:'Usucha for thin and foamy, koicha for thick and bitter. Ippodo sells the Kyoto blend.',
+    where:'Ippodo Tea in Yanaka, or a kaiseki course where matcha arrives unbidden.',
+    etq:'Drink promptly and in three small sips. Turn the bowl a quarter before setting it down.' },
+  { id:'sake', n:'Sake', cat:'Drink', serve:'Chilled for junmai, warmed for genshu, and at body temperature for sairei.',
+    ask:'Ask for the brewery\'s standard blend. Serve it in ochoko, never in a wine glass.',
+    where:'Izakaya counters in Omoide Yokocho; Yamanote breweries tour from Tokyo.',
+    etq:'Warm sake is served in a tokkuri. Never pour your own from the bottle on the table.' }
+]
+
+function buildDishRail(){
+  const rail = $('dish-rail')
+  DISHES.forEach((d, i) => {
+    const b = document.createElement('button')
+    b.textContent = d.n
+    b.setAttribute('role', 'tab')
+    b.addEventListener('click', () => showDish(i))
+    rail.appendChild(b)
+  })
+  showDish(0)
+}
+
+function showDish(i){
+  const d = DISHES[i]
+  $('dish-cat').textContent = d.cat
+  $('dish-name').textContent = d.n
+  $('dish-serve').textContent = d.serve
+  $('dish-ask').textContent = d.ask
+  $('dish-where').textContent = d.where
+  $('dish-etq').textContent = d.etq
+  $('dish-links').innerHTML = ''
+  const add = document.createElement('button')
+  add.textContent = 'Add ' + d.n.toLowerCase() + ' to my Tokyo →'
+  add.addEventListener('click', () => addToItinerary(d.n + ' tasting'))
+  $('dish-links').appendChild(add)
+  const at = document.createElement('button')
+  at.textContent = 'Show on the map →'
+  at.addEventListener('click', () => { initMap(); $('atlas').scrollIntoView({ behavior: 'smooth' }) })
+  $('dish-links').appendChild(at)
+  document.querySelectorAll('#dish-rail button').forEach((b, k) => {
+    b.classList.toggle('on', k === i)
+    b.setAttribute('aria-selected', String(k === i))
+  })
+}
+buildDishRail()
+
+/* -------------------- 3D location markers in city ------------------ */
+
+const CITY_MARKS = [
+  { loc:'jiro', x:3.4, z:-30 },
+  { loc:'nonbei', x:-3.6, z:-44 },
+  { loc:'omoide', x:3.2, z:-58 },
+  { loc:'menchi', x:-3.4, z:-76 },
+  { loc:'narisawa', x:3.5, z:-80 },
+  { loc:'birdland', x:-3.2, z:-88 },
+  { loc:'ippodo', x:3.0, z:-92 },
+  { loc:'kagari', x:-3.6, z:-98 }
+]
+
+CITY_MARKS.forEach(m => {
+  const l = LOCATIONS.find(x => x.id === m.loc)
+  if (!l) return
+  const pin = new THREE.Group()
+  const stem = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 1.1, 6),
+    new THREE.MeshBasicMaterial({ color: 0xc9a961, transparent: true, opacity: 0.5 })
+  )
+  stem.position.y = 0.55
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.075, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xc9a961 })
+  )
+  head.position.y = 1.14
+  const halo = new THREE.Mesh(
+    new THREE.RingGeometry(0.16, 0.2, 20),
+    new THREE.MeshBasicMaterial({ color: 0xc9a961, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })
+  )
+  halo.rotation.x = -Math.PI / 2
+  halo.position.y = 0.02
+  pin.add(stem, head, halo)
+  pin.position.set(m.x, 0, m.z)
+  pin.userData = { type: 'locpin', id: l.id, halo, head }
+  city.add(pin)
+  m.pin = pin
+})
+
+const locPins = CITY_MARKS.map(m => m.pin)
+const locPinById = {}
+locPins.forEach(p => { locPinById[p.userData.id] = p })
+
+/* --------------------- raycast picking (stable) -------------------- */
+
+const ndc = new THREE.Vector2(0, 0)
+const pickables = [...locPins, ...PEOPLE.map(p => p.mesh)]
+const pickMeshes = []
+pickables.forEach(root => { root.traverse(o => { if (o.isMesh) pickMeshes.push(o) }) })
+
+let hovered = null
+function pickAt(cx, cy){
+  ndc.x = (cx / innerWidth) * 2 - 1
+  ndc.y = -(cy / innerHeight) * 2 + 1
+  raycaster.setFromCamera(ndc, camera)
+  const hits = raycaster.intersectObjects(pickMeshes, false)
+  return hits.length ? hits[0].object : null
+}
+
+window.addEventListener('pointermove', e => {
+  if (state.mode !== 'tour' || $('dialogue').classList.contains('on') || $('location').classList.contains('on')) return
+  const hit = pickAt(e.clientX, e.clientY)
+  let root = null
+  if (hit){ root = hit; while (root && !root.userData.type) root = root.parent }
+  if (root !== hovered){
+    if (hovered && hovered.userData.type === 'locpin'){
+      hovered.userData.halo.material.opacity = 0.22
+      hovered.userData.halo.scale.setScalar(1)
+    }
+    hovered = root
+    if (hovered && hovered.userData.type === 'locpin'){
+      hovered.userData.halo.material.opacity = 0.6
+      setCursor('wide', 'OPEN')
+    } else if (hovered && PEOPLE.some(p => p.mesh === hovered)){
+      setCursor('wide', 'SPEAK')
+    } else {
+      setCursor('default')
+    }
+  }
+})
+
+window.addEventListener('pointerdown', e => {
+  if (state.mode !== 'tour') return
+  if ($('dialogue').classList.contains('on') || $('location').classList.contains('on')) return
+  const hit = pickAt(e.clientX, e.clientY)
+  if (!hit) return
+  let root = hit
+  while (root && !root.userData.type) root = root.parent
+  if (!root) return
+  if (root.userData.type === 'locpin') showLocation(root.userData.id)
+  const p = PEOPLE.find(q => q.mesh === root)
+  if (p) openDialogue(p.id)
+})
+
+/* --------------------------- toast ----------------------------- */
 
 let toastTimer = null
 function toast(msg, dur=3400){
@@ -1319,6 +1739,12 @@ function startJourney(){
   window.scrollTo({ top: chaptersEl.offsetTop + 10, behavior: 'smooth' })
   setTimeout(() => toast('Scroll to move through the city'), 900)
 }
+function dismissHero(){
+  if (state.mode === 'tour') return
+  state.mode = 'tour'
+  $('hero').classList.add('gone')
+  setTimeout(() => $('hero').classList.add('hidden'), 1200)
+}
 
 $('nav-journey').addEventListener('click', () => window.scrollTo({ top: chaptersEl.offsetTop, behavior: 'smooth' }))
 $('nav-atlas').addEventListener('click', () => { initMap(); $('atlas').scrollIntoView({ behavior:'smooth' }) })
@@ -1329,6 +1755,7 @@ $('close-concierge').addEventListener('click', () => $('concierge').scrollIntoVi
 
 window.addEventListener('scroll', () => {
   const y = scrollY
+  if (y > 40) dismissHero()
   const tourTop = chaptersEl.offsetTop
   const tourSpan = chaptersEl.offsetHeight - innerHeight
   const inTour = y >= tourTop - innerHeight * 0.5 && y <= tourTop + tourSpan + innerHeight * 0.4
@@ -1464,16 +1891,35 @@ function loop(now){
     if (u.umbrella) u.umbrella.rotation.z = Math.sin(t * 1.4 + u.bob) * 0.03
   })
 
-  PEOPLE.forEach(q => {
-    if (!q.mesh) return
-    const u = q.mesh.userData
-    if (!REDUCED){
-      u.sway += dt
-      u.head.position.y = 1.76 + Math.sin(u.sway * 0.8) * 0.008
-      u.ring.material.opacity = u.near ? 0.4 + Math.sin(t * 1.6) * 0.08 : 0.16
+  PEOPLE.forEach(p => {
+    if (!p.mesh) return
+    const u = p.mesh.userData
+    if (REDUCED) { u.ring.material.opacity = u.near ? 0.34 : 0.16; return }
+    u.sway += dt
+    const s = u.sway
+    const role = p.idle
+    u.head.position.y = 1.76
+    if (role === 'phone'){
+      u.head.rotation.x = 0.5 + Math.sin(s * 0.7) * 0.06
+      u.head.rotation.y = Math.sin(s * 0.35) * 0.24
+    } else if (role === 'photo'){
+      const raise = 1.6 + Math.sin(s * 0.5) * 0.5
+      u.head.rotation.x = raise > 1.8 ? -0.42 : 0.06
+      u.head.rotation.y = Math.sin(s * 0.4) * 0.4
+    } else if (role === 'chef'){
+      u.head.rotation.x = 0.12 + Math.sin(s * 0.6) * 0.14
+      u.head.rotation.y = Math.sin(s * 0.28) * 0.5
+    } else if (role === 'curator'){
+      u.head.rotation.x = Math.sin(s * 0.45) * 0.12
+      u.head.rotation.y = Math.sin(s * 0.22) * 0.6
+    } else if (role === 'host'){
+      u.head.rotation.x = Math.sin(s * 0.5) * 0.1
+      u.head.rotation.y = Math.sin(s * 0.3) * 0.34
     } else {
-      u.ring.material.opacity = u.near ? 0.34 : 0.16
+      u.head.rotation.x = Math.sin(s * 0.33) * 0.08
+      u.head.rotation.y = Math.sin(s * 0.18) * 0.44
     }
+    u.ring.material.opacity = u.near ? 0.4 + Math.sin(t * 1.6) * 0.08 : 0.16
   })
 
   signs.forEach(s => {
@@ -1558,6 +2004,19 @@ function loop(now){
     clawHand.position.y = armY - 0.45
     if (clawU.dropT <= 0){ clawArm.position.y = 1.6; clawHand.position.y = 1.15 }
   }
+
+  /* visibility-based rendering: opaque full-bleed sections cover the canvas,
+     so we stop drawing the 3D entirely while they are on screen */
+  let covered = false
+  if (state.mode === 'tour'){
+    for (const id of ['provisions','atlas','itinerary','concierge','close']){
+      const el = $(id)
+      if (!el) continue
+      const r = el.getBoundingClientRect()
+      if (r.top <= 8 && r.bottom >= innerHeight - 8){ covered = true; break }
+    }
+  }
+  if (covered && !state.mapOpen) return
 
   composer.render()
 }
