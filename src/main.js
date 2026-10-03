@@ -1,6 +1,6 @@
-import maplibregl from 'maplibre-gl'
-
 import * as THREE from 'three'
+import maplibregl from 'maplibre-gl'
+import { createAtmosphere } from './atmosphere.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -35,11 +35,17 @@ if(!IS_TOUCH) composer.addPass(bloom)
 composer.addPass(new OutputPass())
 
 const GradeShader = {
-  uniforms:{ tDiffuse:{value:null}, time:{value:0}, amount:{value:0.0012}, grain:{value:0.045}, vig:{value:0.55} },
+  uniforms:{
+    tDiffuse:{value:null}, time:{value:0}, amount:{value:0.0012},
+    grain:{value:0.045}, vig:{value:0.55},
+    uTint:{value:new THREE.Vector3(1,1,1)},
+    uExposure:{value:1}
+  },
   vertexShader:'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
   fragmentShader:[
     'varying vec2 vUv;',
-    'uniform sampler2D tDiffuse; uniform float time, amount, grain, vig;',
+    'uniform sampler2D tDiffuse; uniform float time, amount, grain, vig, uExposure;',
+    'uniform vec3 uTint;',
     'float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); }',
     'void main(){',
     ' vec2 d = vUv - 0.5; float r2 = dot(d,d);',
@@ -47,7 +53,7 @@ const GradeShader = {
     ' float cr = texture2D(tDiffuse, vUv+off).r;',
     ' float cg = texture2D(tDiffuse, vUv).g;',
     ' float cb = texture2D(tDiffuse, vUv-off).b;',
-    ' vec3 col = vec3(cr,cg,cb);',
+    ' vec3 col = vec3(cr,cg,cb) * uTint * uExposure;',
     ' col += (rand(vUv*vec2(1920.0,1080.0)+fract(time)*100.0)-0.5)*grain;',
     ' col *= 1.0 - r2*vig;',
     ' gl_FragColor = vec4(col,1.0);',
@@ -758,9 +764,9 @@ const DIALOGUE = {
     quiet: { say:"Quiet. Then cross the tracks and keep walking — the streets past the west exit get residential very fast. Golden Gai is the opposite of quiet, so not that.",
       follow:"Shall I mark a route for you?", add:'West-Shinjuku night walk' },
     eat: { say:"Honest answer? I eat standing at a counter in Omoide Yokocho. It is under the railway, it is never quiet, and it is open when I finish.",
-      follow:"Add it to the evening?", add:'Omoide Yokocho, under the tracks' },
+      follow:"Add it to the evening?", add:'Omoide Yokocho, under the tracks', loc:'omoide' },
     busy: { say:"Right now, quiet. The last train has not come through yet, so it empties and refills about every twenty minutes. Wait five and it fills; wait ten and it empties.",
-      follow:"I can show you the good timing.", add:'Golden Gai after last train' }
+      follow:"I can show you the good timing.", add:'Golden Gai after last train', loc:'golden' }
   },
   yuki: {
     open: "Good evening. I know Tokyo can feel overwhelming at first — everywhere is lit, everywhere is loud. Tell me what you are looking for tonight.",
@@ -771,15 +777,15 @@ const DIALOGUE = {
       { t:'Take me somewhere locals love.', go:'locals' }
     ],
     quiet: { say:"Then we leave the main roads entirely. Kagurazaka has stone lanes and old wooden facades — at this hour almost everything is closed, which is exactly the point. We walk, and stop wherever a light is still on.",
-      follow:"Shall I arrange it?", add:'Kagurazaka evening walk' },
+      follow:"Shall I arrange it?", add:'Kagurazaka evening walk', loc:'kagari' },
     food: { say:"Then I would not choose by reputation. Aoi is cooking in Shibuya tonight — twelve seats, no menu until you sit down. I will make the reservation and put us at the counter.",
-      follow:"I will confirm the counter seat.", add:'Private counter dinner' },
+      follow:"I will confirm the counter seat.", add:'Private counter dinner', loc:'jiro' },
     midnight: { say:"After midnight the interesting doors open. Golden Gai has no sign and no map — a hundred bars in six alleyways. We go in, we don't overstay, and we leave when it feels right.",
-      follow:"I will keep the evening open.", add:'Golden Gai, after hours' },
+      follow:"I will keep the evening open.", add:'Golden Gai, after hours', loc:'golden' },
     locals: { say:"Then let's skip the obvious places. There is a small counter in Kagurazaka where the chef still knows every guest by name. Six seats, seasonal menu, no sign outside.",
       follow:"I will arrange the reservation.", add:'Kagurazaka counter' },
     more: { say:"Of course. Six seats. A menu that changes with the market that morning. No sign outside — I will send you the address the day before, and the doorman will know your name.",
-      follow:"Add it to the evening?", add:'Kagurazaka counter' }
+      follow:"Add it to the evening?", add:'Kagurazaka counter', loc:'kagari' }
   },
   aoi: {
     open: "Welcome. Sit anywhere at the counter — I will decide what you eat tonight. Tell me what you usually like, so I know what to avoid.",
@@ -789,11 +795,11 @@ const DIALOGUE = {
       { t:'Something light before a long night.', go:'light' }
     ],
     strong: { say:"Good. Then tonkotsu, properly made — pork bone for two days, nothing added that does not need to be there. I will add a small dish of chashu you did not order.",
-      follow:"Add the dinner?", add:'Tonkotsu & chashu' },
+      follow:"Add the dinner?", add:'Tonkotsu & chashu', loc:'maisen' },
     curious: { say:"Then we start with the clear broth and work outward. Everything tonight was bought this morning. You will taste the difference by the second spoonful.",
-      follow:"Reserve the counter?", add:'Chef\'s tasting counter' },
+      follow:"Reserve the counter?", add:'Chef\'s tasting counter', loc:'narisawa' },
     light: { say:"Light, then. Clear soup, grilled fish, pickles. We keep it delicate and let the sake do the evening's work.",
-      follow:"Reserve the counter?", add:'Light counter dinner' }
+      follow:"Reserve the counter?", add:'Light counter dinner', loc:'menchi' }
   },
   rei: {
     open: "Tokyo changes clothes every season and most visitors only see the department stores. What are you actually drawn to?",
@@ -831,7 +837,7 @@ const DIALOGUE = {
       { t:'Whatever you would play me.', go:'you' }
     ],
     new: { say:"Good. Then we go left at the end of this aisle — city pop, and the record shops that kept it alive while everyone was looking elsewhere.",
-      follow:"Shall we go?", add:'Shimokitazawa record trail' },
+      follow:"Shall we go?", add:'Shimokitazawa record trail', loc:'tsuwajiri' },
     jazz: { say:"I have a small jazz room two streets over that only plays vinyl. Four seats. Tell them Kenji sent you and sit at the back.",
       follow:"Arrange the listening room?", add:'Vinyl listening room' },
     you: { say:"Then I would play you the record I bought on my first month in Tokyo. It cost almost nothing and it is the only reason I stayed.",
@@ -845,11 +851,11 @@ const DIALOGUE = {
       { t:'Full-bodied, warming.', go:'full' }
     ],
     rare: { say:"Then junmai daiginjo, poured cold and taken slowly. It will be quiet — almost nothing on the palate, which is exactly the point. The brewer is two hours from here.",
-      follow:"Arrange the tasting?", add:'Rare junmai tasting' },
+      follow:"Arrange the tasting?", add:'Rare junmai tasting', loc:'birdland' },
     dry: { say:"Then I would pour genshu, warmed a little below body temperature. It should smell of green apple and snow. Anything more elaborate would drown it.",
-      follow:"Arrange the tasting?", add:'Warm genshu flight' },
+      follow:"Arrange the tasting?", add:'Warm genshu flight', loc:'birdland' },
     full: { say:"Then sairei, warmed properly — you will feel it in the chest. We will pair it with the grilled eel and let it sit on the tongue.",
-      follow:"Arrange the tasting?", add:'Sairei & grilled eel' }
+      follow:"Arrange the tasting?", add:'Sairei & grilled eel', loc:'birdland' }
   },
   ren: {
     open: "Tokyo changes clothes every season and most people never see it. If you want the real thing, we skip the department store. What are you drawn to?",
@@ -873,16 +879,18 @@ const DIALOGUE = {
       { t:'Surprise me.', go:'surprise' }
     ],
     first: { say:"Then sencha, whisked in front of you, so you see the foam. The first bowl is always too hot and too bitter — that is correct. The second one is where it begins to make sense.",
-      follow:"Add the ceremony?", add:'Private tea ceremony' },
+      follow:"Add the ceremony?", add:'Private tea ceremony', loc:'ippodo' },
     some: { say:"Then we skip the usual and go straight to gyokuro — shaded for three weeks, brewed cool, almost nothing on the tongue but very much there.",
-      follow:"Add the ceremony?", add:'Gyokuro tasting' },
+      follow:"Add the ceremony?", add:'Gyokuro tasting', loc:'ippodo' },
     surprise: { say:"Good. Then I will choose, and you will not know until it is in front of you. That is the most honest way to be introduced to anything.",
-      follow:"Add the ceremony?", add:"Master's choice ceremony" }
+      follow:"Add the ceremony?", add:"Master's choice ceremony", loc:'ippodo' }
   }
 }
 
 const dlgBody = $('dlg-body')
 const dlgOpts = $('dlg-opts')
+
+let tGlobal = 0
 
 function dlgLine(who, txt, cls){
   const d = document.createElement('div')
@@ -899,18 +907,57 @@ function dlgButtons(list){
     el.className = 'dlg-opt' + (b.add ? ' add' : '')
     el.textContent = b.t
     el.addEventListener('click', () => {
-      if (b.add){ addToItinerary(b.add); dlgLine('Journey', 'Added to My Tokyo.'); return }
+      if (b.add){
+        addToItinerary(b.add)
+        dlgLine('Journey', 'Added to My Tokyo.')
+        return
+      }
+      if (b.atmos){
+        atmosOpts.querySelectorAll('button').forEach(o => o.classList.toggle('on', o.dataset.a === b.atmos))
+        atmosphere.applyMode(b.atmos)
+        dlgLine('Atmosphere', b.label + ' — ' + b.note)
+        dlgButtons(DIALOGUE[state.guide].options)
+        return
+      }
       dlgLine(state.guide, b.t, 'user')
+      if (b.go === 'view'){
+        if (pendingLoc){ closeDialogue(); showLocation(pendingLoc) }
+        return
+      }
+      if (b.go === 'atlas'){
+        if (pendingLoc){
+          const l = LOCATIONS.find(x => x.id === pendingLoc)
+          if (l){
+            const p = PLACES.find(x => x.n === l.name)
+            closeDialogue()
+            initMap()
+            setTimeout(() => {
+              $('atlas').scrollIntoView({ behavior: 'smooth' })
+              if (p){ map.flyTo([p.lng, p.lat], 14, { duration: 1600 }); showPlace(p) }
+            }, 260)
+          }
+        }
+        return
+      }
       const node = DIALOGUE[state.guide][b.go]
-      setTimeout(()=>{
-        dlgLine('Yuki'.replace('Yuki', state.guide === 'yuki' ? 'Yuki' : nameOf(state.guide)), node.say)
+      if (!node){ dlgButtons(DIALOGUE[state.guide].options); return }
+      setTimeout(() => {
+        const who = nameOf(state.guide)
+        dlgLine(who, node.say)
         speak(node.say)
-        dlgButtons([{ t:'Tell me more.', go:'more' }, { t: node.follow, add: node.add }])
+        const acts = []
+        if (node.loc){ acts.push({ t:'View the restaurant →', go:'view' }); acts.push({ t:'Show on atlas →', go:'atlas' }) }
+        acts.push({ t:'Tell me more.', go:'more' })
+        acts.push({ t: node.follow, add: node.add })
+        dlgButtons(acts)
+        pendingLoc = node.loc || null
       }, 420)
     })
     dlgOpts.appendChild(el)
   })
 }
+
+let pendingLoc = null
 
 function nameOf(id){
   const p = PEOPLE.find(q => q.id === id)
@@ -923,6 +970,8 @@ function openDialogue(id){
   if (!d) return
   state.guide = id
   const p = PEOPLE.find(q => q.id === id)
+  markPeople(id, p.name, p.role)
+  if (p && p.mesh) p.mesh.userData.turned = tGlobal
   $('dlg-name').textContent = p ? p.name : id
   $('dlg-role').textContent = p ? p.role + ' · ' + p.district : ''
   dlgBody.innerHTML = ''
@@ -1399,6 +1448,8 @@ const AREA_AT = {
   'Asakusa Nakamise':0.93, 'Shinjuku Gyoen Night':0.03, 'Yoyogi Park':0.35
 }
 
+const TOUR_NAV = { jiro:0.22, nonbei:0.30, omoide:0.40, menchi:0.52, narisawa:0.56, birdland:0.64, ippodo:0.70, kagari:0.86 }
+
 const toast_placeholder = null
 
 /* --------------------------- locations ---------------------------- */
@@ -1477,6 +1528,7 @@ const LOCATIONS = [
 function showLocation(id){
   const l = LOCATIONS.find(x => x.id === id)
   if (!l) return
+  markPlace(l.id, l.name)
   $('loc-cat').textContent = l.cat
   $('loc-name').textContent = l.name
   $('loc-district').textContent = l.ward
@@ -1488,6 +1540,11 @@ function showLocation(id){
   $('loc-map').href = gmaps(l.lat, l.lng, l.name)
   $('loc-find').href = findUrl(l.name)
   $('loc-add').onclick = () => { addToItinerary(l.name); closeLocation() }
+  $('loc-save').onclick = () => openMoment(
+    'TOKYO',
+    fmtClock(state.clock) + ' JST · ' + l.ward.split(',')[0],
+    l.famous
+  )
   $('location').classList.add('on')
   document.body.classList.add('locked')
 }
@@ -1548,6 +1605,7 @@ function buildDishRail(){
 
 function showDish(i){
   const d = DISHES[i]
+  markFood(d.id, d.n)
   $('dish-cat').textContent = d.cat
   $('dish-name').textContent = d.n
   $('dish-serve').textContent = d.serve
@@ -1568,6 +1626,73 @@ function showDish(i){
     b.setAttribute('aria-selected', String(k === i))
   })
 }
+let toastTimer = null
+function toast(msg, dur=3400){
+  const t = $('toast')
+  t.textContent = msg
+  t.classList.add('on')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => t.classList.remove('on'), dur)
+}
+
+const DISC_STORE = 'yoru-discovery'
+let disc = { people:{}, places:{}, food:{}, moments:[], passport:{} }
+try { disc = Object.assign(disc, JSON.parse(localStorage.getItem(DISC_STORE) || '{}')) } catch (e) {}
+
+function saveDisc(){ try { localStorage.setItem(DISC_STORE, JSON.stringify(disc)) } catch (e) {} }
+
+const WARDS = ['Shinjuku','Shibuya','Ginza','Asakusa','Akihabara','Harajuku','Shimokitazawa','Roppongi','Kagurazaka']
+
+function renderPassport(){
+  const grid = $('pass-grid')
+  if (!grid) return
+  grid.innerHTML = ''
+  WARDS.forEach(w => {
+    const got = !!disc.passport[w]
+    const d = document.createElement('div')
+    d.className = 'pass-cell' + (got ? ' got' : '')
+    d.innerHTML = '<div class="pass-stamp">' + (got ? '\u2713' : '\u00b7') + '</div>' +
+                  '<div class="pass-n">' + w + '</div>' +
+                  '<div class="pass-c">' + (got ? 'Discovered' : 'Not yet') + '</div>'
+    grid.appendChild(d)
+  })
+}
+
+function renderTally(){
+  $('t-people').textContent  = String(Object.keys(disc.people).length).padStart(2,'0')
+  $('t-places').textContent  = String(Object.keys(disc.places).length).padStart(2,'0')
+  $('t-food').textContent    = String(Object.keys(disc.food).length).padStart(2,'0')
+  $('t-moments').textContent = String(disc.moments.length).padStart(2,'0')
+  renderPassport()
+}
+
+function markPeople(id, name, role){
+  if (disc.people[id]) return
+  disc.people[id] = { name, role }
+  saveDisc(); renderTally()
+  toast('Met ' + name + ' \u2014 ' + role)
+}
+
+function markPlace(id, name){
+  if (disc.places[id]) return
+  disc.places[id] = name
+  saveDisc(); renderTally()
+  toast('Discovered ' + name)
+  const l = LOCATIONS.find(x => x.id === id)
+  if (l){
+    const w = l.ward.split(',')[0].trim()
+    if (WARDS.indexOf(w) > -1 && !disc.passport[w]){ disc.passport[w] = true; saveDisc() }
+  }
+}
+
+function markFood(id, n){
+  if (disc.food[id]) return
+  disc.food[id] = n
+  saveDisc(); renderTally()
+  toast('Learned about ' + n)
+}
+
+
 buildDishRail()
 
 /* -------------------- 3D location markers in city ------------------ */
@@ -1665,16 +1790,149 @@ window.addEventListener('pointerdown', e => {
   if (p) openDialogue(p.id)
 })
 
-/* --------------------------- toast ----------------------------- */
+/* ---------------------------- atmosphere --------------------------- */
 
-let toastTimer = null
-function toast(msg, dur=3400){
-  const t = $('toast')
-  t.textContent = msg
-  t.classList.add('on')
-  clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => t.classList.remove('on'), dur)
+const atmosphere = createAtmosphere({
+  scene, camera, city, rain, rainGeo, rainMat, rainCount,
+  gradePass, IS_TOUCH
+})
+
+const atmosOpts = $('atmos-opts')
+atmosOpts.querySelectorAll('button').forEach(b => {
+  b.addEventListener('click', () => {
+    atmosOpts.querySelectorAll('button').forEach(o => o.classList.remove('on'))
+    b.classList.add('on')
+    atmosphere.applyMode(b.dataset.a)
+    const msg = b.dataset.a === 'day' ? 'Day — the city without its neon'
+      : b.dataset.a === 'spring' ? 'Spring — sakura season'
+      : b.dataset.a === 'snow' ? 'Snow — quieter, colder, warmer windows'
+      : 'Night — the signature'
+    toast(msg)
+  })
+})
+
+function fmtClock(mins){
+  const h = Math.floor(mins / 60) % 24
+  const m = Math.floor(mins % 60)
+  return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0')
 }
+
+function districtNow(){
+  let cur = TOUR[0]
+  TOUR.forEach(c => { if (state.p >= c.at - 0.001) cur = c })
+  return cur.district
+}
+
+/* ------------------------ discovery + journal --------------------- */
+
+function fillList(el, rows, empty){
+  if (!el) return
+  if (!rows.length){ el.innerHTML = '<li><div class="jr-empty">' + empty + '</div></li>'; return }
+  el.innerHTML = rows.map((r, i) =>
+    '<li><span class="n mono">' + String(i+1).padStart(2,'0') + '</span>' +
+    '<span><span class="t">' + r[0] + '</span><span class="m">' + r[1] + '</span></span></li>'
+  ).join('')
+}
+
+function renderJournal(){
+  fillList($('jr-place-list'),
+    Object.keys(disc.places).map(k => [disc.places[k], 'Place discovered']),
+    'No places yet. Follow the light.')
+  fillList($('jr-people-list'),
+    Object.keys(disc.people).map(k => [disc.people[k].name, disc.people[k].role]),
+    'No one met yet. Scroll — people are standing in the street.')
+  fillList($('jr-food-list'),
+    Object.keys(disc.food).map(k => [disc.food[k], 'Dish learned']),
+    'No dishes yet. Open Provisions.')
+  const mg = $('jr-moment-grid')
+  if (mg){
+    mg.innerHTML = disc.moments.length
+      ? '<div class="pass-grid">' + disc.moments.map(m =>
+          '<div class="pass-cell got"><div class="pass-stamp">\u2726</div><div class="pass-n">' + m.title +
+          '</div><div class="pass-c">' + m.sub + '</div></div>').join('') + '</div>'
+      : '<div class="jr-empty">No moments saved yet.</div>'
+  }
+  renderPassport()
+}
+
+$('jr-tabs').querySelectorAll('button').forEach(b => {
+  b.addEventListener('click', () => {
+    $('jr-tabs').querySelectorAll('button').forEach(o => o.classList.remove('on'))
+    b.classList.add('on')
+    document.querySelectorAll('.jr-panel').forEach(p => p.classList.remove('on'))
+    const panel = $('jr-' + b.dataset.t)
+    if (panel) panel.classList.add('on')
+    renderJournal()
+  })
+})
+
+/* --------------------------- Tokyo Moments ------------------------ */
+
+const MOMENTS = [
+  { at:0.08, t:'Some cities are beautiful because nobody is trying to make them beautiful.' },
+  { at:0.22, t:'A place becomes famous long after it stops being good.' },
+  { at:0.36, t:'Everyone photographs the crossing. Almost nobody looks at what is behind it.' },
+  { at:0.52, t:'Six seats, no sign, and a chef who has worked the same hours for thirty years.' },
+  { at:0.68, t:'Tokyo rebuilds itself every few years and still keeps the same six alleys.' },
+  { at:0.86, t:'Snow makes the city briefly, accidentally European.' },
+  { at:0.95, t:'The last train is not the end of the night. For a few people, it is the start.' }
+]
+const momentSeen = {}
+
+function checkMoment(p){
+  MOMENTS.forEach(m => {
+    if (momentSeen[m.at]) return
+    if (p >= m.at && p < m.at + 0.05){
+      momentSeen[m.at] = true
+      $('moment-time').textContent = fmtClock(state.clock)
+      $('moment-text').textContent = m.t
+      $('moment').classList.add('on')
+      setTimeout(() => $('moment').classList.remove('on'), 6200)
+    }
+  })
+}
+
+/* --------------------------- save moment -------------------------- */
+
+let pendingMoment = null
+function openMoment(title, sub, line){
+  pendingMoment = { title, sub, line }
+  $('pc-title').textContent = title
+  $('pc-sub').textContent = sub
+  $('pc-line').textContent = line
+  $('postcard').classList.add('on')
+}
+$('pc-close').addEventListener('click', () => $('postcard').classList.remove('on'))
+$('pc-keep').addEventListener('click', () => {
+  if (!pendingMoment) return
+  disc.moments.push({ title: pendingMoment.title, sub: pendingMoment.sub })
+  saveDisc(); renderTally(); renderJournal()
+  $('postcard').classList.remove('on')
+  toast('Moment saved to My Tokyo')
+})
+
+/* ------------------------------ intro ----------------------------- */
+
+function enterTokyo(){
+  const intro = $('intro')
+  intro.classList.add('gone')
+  intro.style.pointerEvents = 'none'
+  document.body.classList.remove('locked')
+  setTimeout(() => { intro.classList.add('done') }, 950)
+  $('hero').classList.add('ready')
+  $('atmos').classList.add('on')
+  $('tally').classList.add('on')
+  renderTally(); renderJournal()
+  setTimeout(() => toast('Scroll to begin \u2014 or choose an atmosphere'), 1200)
+}
+$('enter-tokyo').addEventListener('click', enterTokyo)
+
+document.body.classList.add('locked')
+const heroEl = $('hero')
+heroEl.classList.remove('ready')
+
+/* ------------------------------ toast ----------------------------- */
+
 
 /* ------------------------------ sound ----------------------------- */
 
@@ -1756,6 +2014,7 @@ $('close-concierge').addEventListener('click', () => $('concierge').scrollIntoVi
 window.addEventListener('scroll', () => {
   const y = scrollY
   if (y > 40) dismissHero()
+  if (!$('intro').classList.contains('done')) return
   const tourTop = chaptersEl.offsetTop
   const tourSpan = chaptersEl.offsetHeight - innerHeight
   const inTour = y >= tourTop - innerHeight * 0.5 && y <= tourTop + tourSpan + innerHeight * 0.4
@@ -1770,11 +2029,17 @@ window.addEventListener('scroll', () => {
     $('rail-fill').style.height = (p * 100) + '%'
     const hh = String(Math.floor(state.clock / 60) % 24).padStart(2,'0')
     const mm = String(Math.floor(state.clock % 60)).padStart(2,'0')
-    $('district-time').textContent = hh + ':' + mm + ' JST'
+    $('district-time').textContent = fmtClock(state.clock) + ' JST'
     let cur = TOUR[0]
     TOUR.forEach(c => { if (p >= c.at - 0.001) cur = c })
     const dn = $('district-name')
     if (dn.textContent !== cur.district) dn.textContent = cur.district
+    checkMoment(p)
+    CITY_MARKS.forEach(m => {
+      if (m.passed) return
+      const at = TOUR_NAV[m.loc]
+      if (at !== undefined && p >= at - 0.02) m.passed = true
+    })
     PEOPLE.forEach(q => {
       const show = p > q.from && p < q.to
       q.chip.classList.toggle('show', show)
@@ -1839,6 +2104,8 @@ function loop(now){
   state.clock += dt / 6
   if (state.clock >= 24 * 60) state.clock -= 24 * 60
 
+  atmosphere.update(dt, t)
+
   if (state.mode === 'tour'){
     camAt(state.p)
     camera.position.copy(camPos)
@@ -1846,21 +2113,8 @@ function loop(now){
   }
 
   gradePass.uniforms.time.value = t
-  scene.fog.density = 0.008 + (state.p > 0.72 ? 0.006 : 0)
 
-  /* city life */
-  if (!REDUCED){
-    const sp = 21
-    const rp = rainGeo.attributes.position
-    for (let i = 0; i < rainCount; i++){
-      let y = rp.getY(i) - sp * dt
-      if (y < 0) y += 26
-      rp.setY(i, y)
-    }
-    rp.needsUpdate = true
-  }
-  rain.rotation.z = 0.03
-
+  /* city life — atmosphere module owns sky, fog, rain, stars, snow, petals */
   state.trafficT += dt
   const ph = state.trafficT % 13
   state.light = ph < 7 ? 'green' : ph < 8.5 ? 'yellow' : 'red'
@@ -1868,9 +2122,10 @@ function loop(now){
   trafficLight.y.material.color.setHex(state.light === 'yellow' ? 0xd8b04a : 0x453a1e)
   trafficLight.g.material.color.setHex(state.light === 'green' ? 0x4a8a63 : 0x1e3226)
 
+  const atm = atmosphere.state.cur
   cars.forEach(c => {
     const u = c.userData
-    let nz = c.position.z + u.dir * u.speed * 0.55 * dt
+    let nz = c.position.z + u.dir * u.speed * 0.55 * atm.traffic * dt
     if (state.light !== 'green'){
       if (u.dir < 0 && c.position.z > -44 && nz <= -44) nz = -44
       if (u.dir > 0 && c.position.z < -56 && nz >= -56) nz = -56
@@ -1882,7 +2137,8 @@ function loop(now){
 
   peds.forEach(p => {
     const u = p.userData
-    const pace = (u.zone.x && Math.abs(p.position.z + 50) < 12) ? (state.light === 'red' ? 0.75 : 0.25) : 1
+    const lightGate = (u.zone.x && Math.abs(p.position.z + 50) < 12) ? (state.light === 'red' ? 0.75 : 0.25) : 1
+    const pace = lightGate * atm.pedDensity
     p.position.x += u.dir * u.speed * 0.5 * pace * dt
     if (p.position.x > u.zone.x[1]) { p.position.x = u.zone.x[1]; u.dir = -1 }
     if (p.position.x < u.zone.x[0]) { p.position.x = u.zone.x[0]; u.dir = 1 }
