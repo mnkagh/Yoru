@@ -1,32 +1,69 @@
-# YORU — Tokyo, After Dark
+# YORU — LIMINAL TOKYO
 
-**LIMINAL TOKYO** — an interactive night journey through Tokyo.
+**Tokyo, privately experienced.**
 
-You enter the city. You walk it. It's rainy, it's alive, and five moments are hidden in it.
+A luxury travel agency experience. Not a game, not a template — a long-form cinematic
+journey through Tokyo where the visitor scrolls, meets people, and builds an evening.
 
-## The experience
+---
 
-Not a travel website. A night you can walk around.
+## The principle
 
-- **First-person city** — WASD / arrows to walk, mouse to look (click to capture the pointer)
-- **Interact** — press **E** near anything alive: the ramen stall, vending machines, the arcade cabinet, a stray cat, a shrine, the last train
-- **Map** — press **M**, drag to rotate, click a neighborhood, hit **NAVIGATE →**
-- **Discover 5 moments** — hidden ramen alley, vending machine, tiny shrine, the rooftop, the last train
-- **Alive** — traffic lights cycle, cars stop at red, trains arrive on a loop, pedestrians carry umbrellas, rain ripples in puddles, steam rises from the bowl
-- **Night cycle** — the clock runs from 23:47 onward, rain eases at the rooftop
+> You are not booking a trip. You are being introduced to Tokyo.
 
-## Controls
+**Scroll is the primary interaction.** The camera moves through the city as you scroll.
+There is deliberately **no mouse-tilt, no cursor parallax, no background-follow** — the
+environment stays stable and cinematic. Hover only ever gives feedback to a single
+element you are actually pointing at.
 
-| Key | Action |
+---
+
+## The journey
+
+| Chapter | |
 | --- | --- |
-| `W A S D` / arrows | walk |
-| mouse | look (click to capture pointer) |
-| `E` / click | interact |
-| `M` | map |
-| `S` | sound on/off |
-| `Esc` | close panels |
+| 01 | The city is just waking up |
+| 02 | Follow the light |
+| 03 | Dinner, without the crowd |
+| 04 | Thousands of stories cross here every night |
+| 05 | The Tokyo most visitors never see |
+| 06 | A city that rewards the detour |
+| 07 | Above it, the city keeps moving |
 
-On mobile: joystick to walk, drag to look, on-screen **E** and **MAP** buttons.
+Then: **The Atlas** (real map) → **My Tokyo** (itinerary) → **Concierge** → **Close**.
+
+---
+
+## People
+
+Five people stand in the city, each with a real purpose and a branching conversation:
+
+- **Yuki** — private cultural guide
+- **Aoi** — executive chef
+- **Haruki** — sake curator
+- **Ren** — design & fashion
+- **Mika** — tea practitioner
+
+Conversations are **deterministic** — every guide has authored branching paths, so the
+experience is identical on every visit and cannot break. An LLM layer can be added
+behind the same interface later without changing the UI.
+
+**Voice is optional.** `Talk` uses the browser's speech recognition; `Listen` reads the
+reply aloud. Both degrade silently to text if unsupported, and the mic is never required.
+
+---
+
+## The map
+
+**MapLibre GL** over a **CARTO raster basemap sourced from OpenStreetMap**, with 22 real
+Tokyo landmarks at their true coordinates (Shibuya Crossing, Senso-ji, Shinjuku Gyoen,
+Golden Gai, Kagurazaka, Omotesando, Kuramae, Daikanyama, Shimokitazawa, Tsukiji and
+more). No map geometry is fabricated.
+
+No Google Maps key, no billing, no API cost. If a Google Maps Platform key is added
+later, only the tile source in `initMap()` needs to change.
+
+---
 
 ## Run it
 
@@ -35,26 +72,46 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173
+Open http://localhost:5173
 
-> Note: this is a serve-only project. Don't run `npm run build` — Three.js loads from
-> `node_modules` via Vite's dev pipeline and there's no static build step configured.
+> Serve-only project — do not run `npm run build`. Three.js and MapLibre resolve through
+> Vite's dev pipeline.
+
+---
 
 ## Stack
 
-- **Three.js** — rendering, WebGL post-processing (bloom, film grain, chromatic aberration)
+- **Three.js** — the city, WebGL post-processing (bloom, grain, chromatic aberration)
+- **MapLibre GL** — the atlas
 - **Vite** — dev server
-- **No APIs.** Every texture, sound, neon sign and building is generated in the browser.
-  No stock photography, no maps API, no keys.
+- **Cormorant Garamond / Inter / JetBrains Mono** — typography
+
+**Zero APIs.** Every texture, sound, neon sign, building and person is generated in the
+browser. No stock photography, no AI-generated images, no tracking.
+
+---
+
+## Accessibility
+
+- Every interaction works by click or tap — nothing depends on hover
+- Keyboard accessible throughout, visible focus rings
+- Speech always has a text equivalent
+- `prefers-reduced-motion` removes camera movement and environmental animation
+- Mobile gets a bottom-sheet dialogue, not a shrunken desktop HUD
+
+---
 
 ## Structure
 
 ```
-index.html      UI, styles, HUD, panels
-src/main.js     entire 3D world + game loop
+index.html      layout, typography, all editorial copy
+src/main.js     city construction + tour engine + dialogue + atlas + concierge
 ```
 
-## Credits
+---
 
-Fictional storytelling, real neighborhood names and geography. All visuals are
-procedurally generated — no copyrighted imagery is used.
+## Content note
+
+LIMINAL TOKYO is a fictional agency. Neighborhoods, landmarks and geography are real;
+the storytelling, pricing and availability are illustrative sample content. No booking
+is made through this site.

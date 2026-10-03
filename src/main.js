@@ -1,3 +1,4 @@
+import maplibregl from 'maplibre-gl'
 
 import * as THREE from 'three'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
@@ -13,14 +14,6 @@ const clamp = THREE.MathUtils.clamp
 const smooth = t=>t*t*(3-2*t)
 const easeOut = t=>1-Math.pow(1-t,3)
 
-const state = {
-  mode:'hero', p:0, secrets:0, cityFound:false,
-  mapOpen:false, roofT:0, roofF:0, gameClock: 23*60+47, trafficT:0, light:'green',
-  finalShown:false, chimed:false, transT:0, discFound:0, zone:'', near:null, trainHere:false
-}
-const player = { x:0, z:6, yaw:0, pitch:0, vx:0, vz:0, bob:0, speedTarget:0 }
-const keys = {}
-const discoveries = { ramen:false, vending:false, rooftop:false, shrine:false, train:false }
 
 const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('scene'), antialias: !IS_TOUCH, powerPreference:'high-performance' })
 renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2))
@@ -615,183 +608,635 @@ buildVibeObjects()
 vibeObjects.forEach(o=>o.visible=false)
 
 const $ = id => document.getElementById(id)
-const cursorEl = $('cursor'), cursorLabel = $('cursor-label')
-let cursorState = 'default'
-function setCursor(state, label=''){
-  cursorState = state
-  cursorEl.className = state==='default' ? '' : state
-  cursorLabel.textContent = label
+
+const state = {
+  mode:'hero',
+  p:0,
+  clock: 23*60+47,
+  trafficT:0,
+  light:'green',
+  guide:null,
+  it:[],
+  filters:new Set(),
+  reduce: REDUCED,
+  listening:false,
+  speaking:false
 }
-const cursorPos = { x: innerWidth/2, y: innerHeight/2 }
-const cursorTarget = { x: innerWidth/2, y: innerHeight/2 }
-window.addEventListener('pointermove', e=>{
-  cursorTarget.x = e.clientX; cursorTarget.y = e.clientY
-  pointerPx.x = e.clientX; pointerPx.y = e.clientY
-  pointer.x = (e.clientX/innerWidth)*2 - 1
-  pointer.y = -(e.clientY/innerHeight)*2 + 1
-})
-window.addEventListener('pointerdown', e=>{
-  const r = document.createElement('div')
-  r.className = 'ripple'
-  r.style.left = (e.clientX-3)+'px'
-  r.style.top = (e.clientY-3)+'px'
-  document.body.appendChild(r)
-  setTimeout(()=>r.remove(), 600)
-  if(soundOn) blip()
-})
 
 const camPos = new THREE.Vector3()
 const camLook = new THREE.Vector3()
 
-const mapScene = new THREE.Scene()
-mapScene.background = new THREE.Color(0x04060b)
-const mapCamera = new THREE.PerspectiveCamera(40, innerWidth/innerHeight, 0.1, 300)
-mapCamera.position.set(0, 24, 20)
-const mapGroup = new THREE.Group()
-mapGroup.rotation.x = -0.42
-mapScene.add(mapGroup)
+/* ------------------------------------------------------------------ *
+ *  TOUR — scroll is the primary mechanism. No pointer parallax.      *
+ * ------------------------------------------------------------------ */
 
-const HOODS = {
-  shibuya:  { name:'SHIBUYA',  vibe:'FAST / LOUD / ELECTRIC',    time:'20:00', desc:'Where thousands of people cross paths without ever meeting. Look up. Look around. Then disappear into one of the streets behind the crossing.', dontmiss:'THE STREETS BEHIND THE CROWD', prompt:'FIND YOUR WAY THROUGH →', z:-50, cx:560, cy:520, color:'#ff2e88' },
-  shinjuku: { name:'SHINJUKU', vibe:'DENSE / RESTLESS / ENDLESS',time:'21:00', desc:'Skyscrapers above. Tiny bars below. The city feels impossibly large until you turn down the right alley. Then suddenly, you\'re somewhere completely different.', dontmiss:'GOLDEN GAI', prompt:'GO DEEPER →', z:-10, cx:500, cy:380, color:'#ff5a36' },
-  asakusa:  { name:'ASAKUSA',  vibe:'OLD / QUIET / TIMELESS',    time:'18:00', desc:'Tokyo slows down here. Old streets meet a city that never really stopped moving. Walk without a destination. You\'ll find something.', dontmiss:'THE SIDE STREETS', prompt:'TAKE THE LONG WAY →', z:-82, cx:700, cy:420, color:'#ffb36b' },
-  akihabara:{ name:'AKIHABARA',vibe:'LOUD / PLAYFUL / DIGITAL',  time:'19:00', desc:'Screens everywhere. Arcades humming. Machines making sounds you don\'t recognize. Stay long enough and the line between the physical and digital starts to disappear.', dontmiss:'THE ARCADES', prompt:'PRESS START →', z:-95, cx:590, cy:450, color:'#00d4c8' },
-  harajuku: { name:'HARAJUKU', vibe:'YOUNG / CREATIVE / UNPREDICTABLE', time:'17:00', desc:'Where fashion, music, street culture and strange ideas collide. Come curious. Leave with something you didn\'t expect.', dontmiss:'THE SIDE STREETS', prompt:'EXPLORE →', z:-62, cx:430, cy:500, color:'#ffe95a' },
-  ginza:    { name:'GINZA',    vibe:'LUXURY GLOW',               time:'21:00', desc:'Neon reflected on wide avenues. Galleries, department stores and rooftop bars above the crowd. The quieter side of the city, after dark.', dontmiss:'THE ROOFTOP BARS', prompt:'EXPLORE →', z:-34, cx:560, cy:580, color:'#7fd4ff' },
-  shimokita:{ name:'SHIMOKITAZAWA', vibe:'INDIE / CREATIVE / SLOW', time:'16:00', desc:'Vintage clothes. Tiny venues. Record stores. Coffee shops. A slower rhythm hiding inside one of the world\'s fastest cities.', dontmiss:'THE RECORD STORES', prompt:'GET LOST →', z:-74, cx:370, cy:470, color:'#ff9ecf' }
+const TOUR = [
+  { at:0.00, pos:[0, 15, 34],    look:[0, 7, -40],   district:'Shinjuku',
+    idx:'01', title:'The city is <em>just waking up.</em>',
+    body:'Rain over the expressway. Somewhere below, a kitchen light comes on at two in the morning. Tokyo is not asleep — it has simply changed its shift.' },
+  { at:0.14, pos:[0, 3.6, 8],    look:[-2, 2.6, -30], district:'Nishi-Shinjuku',
+    idx:'02', title:'Follow the light.',
+    body:'We leave the wide road behind. The lane narrows. Steam lifts from a doorway, and someone has left a single lamp on for the people who know where to look.' },
+  { at:0.28, pos:[1.4, 2.2, -32], look:[-1, 1.8, -48], district:'Yoyogi',
+    idx:'03', title:'Dinner, <em>without the crowd.</em>',
+    body:'Twelve seats. A menu written when you sit down. The kitchen has been running since five, and the chef will decide what tonight tastes like.' },
+  { at:0.42, pos:[0, 2.6, -44],  look:[0, 1.6, -54],  district:'Shibuya',
+    idx:'04', title:'Thousands of stories <em>cross here every night.</em>',
+    body:'The scramble crossing empties for perhaps ninety seconds each hour. That minute is the closest thing Tokyo has to a private moment.' },
+  { at:0.56, pos:[0.6, 2.0, -60],look:[-1, 1.6, -74], district:'Shibuya',
+    idx:'05', title:'The Tokyo <em>most visitors never see.</em>',
+    body:'One street back from the light, the volume drops completely. Izakayas with six seats. A cat that owns the pavement. A door with no sign.' },
+  { at:0.70, pos:[0, 2.2, -78],  look:[0, 2.0, -94],  district:'Shibuya',
+    idx:'06', title:'A city that <em>rewards the detour.</em>',
+    body:'Akihabara hums three districts away, but this arcade is quieter. The machines have been here longer than the building, and someone still remembers everyone\'s high score.' },
+  { at:0.84, pos:[0, 3.0, -96],  look:[0, 8, -140],  district:'Shibuya',
+    idx:'07', title:'Above it, <em>the city keeps moving.</em>',
+    body:'From eleven floors up the rain stops falling on you. Below, a train runs empty, a shop pulls its shutter, and another night begins without ceremony.' }
+]
+
+function camAt(p){
+  let i = 0
+  while(i < TOUR.length-2 && p > TOUR[i+1].at) i++
+  const a = TOUR[i], b = TOUR[i+1]
+  const t = smooth(clamp((p - a.at)/(b.at - a.at), 0, 1))
+  camPos.set(lerp(a.pos[0],b.pos[0],t), lerp(a.pos[1],b.pos[1],t), lerp(a.pos[2],b.pos[2],t))
+  camLook.set(lerp(a.look[0],b.look[0],t), lerp(a.look[1],b.look[1],t), lerp(a.look[2],b.look[2],t))
 }
-const mapMarkers = []
-function buildMap(){
-  const { tex } = canvasTex(1024, 1024, (ctx)=>{
-    ctx.fillStyle = '#070a12'; ctx.fillRect(0,0,1024,1024)
-    ctx.strokeStyle = '#0d1b2a'; ctx.lineWidth = 90
-    ctx.beginPath(); ctx.moveTo(-50, 300); ctx.bezierCurveTo(300, 380, 600, 250, 1100, 420); ctx.stroke()
-    ctx.fillStyle = '#0c1a14'
-    ctx.fillRect(120, 120, 180, 140); ctx.fillRect(760, 640, 200, 160)
-    ctx.strokeStyle = '#161e2e'; ctx.lineWidth = 3
-    for(let i=0;i<24;i++){ ctx.beginPath(); ctx.moveTo(i*44, 0); ctx.lineTo(i*44, 1024); ctx.stroke() }
-    for(let i=0;i<24;i++){ ctx.beginPath(); ctx.moveTo(0, i*44); ctx.lineTo(1024, i*44); ctx.stroke() }
-    ctx.strokeStyle = '#28334e'; ctx.lineWidth = 7
-    for(let i=0;i<6;i++){ ctx.beginPath(); ctx.moveTo(0, 100+i*170); ctx.lineTo(1024, 140+i*160); ctx.stroke() }
-    ctx.strokeStyle = '#ff2e88'; ctx.lineWidth = 5
-    ctx.beginPath(); ctx.moveTo(380, 380); ctx.lineTo(500, 420); ctx.lineTo(560, 520); ctx.lineTo(590, 450); ctx.lineTo(700, 420); ctx.stroke()
-    Object.values(HOODS).forEach(h=>{
-      ctx.shadowColor = h.color; ctx.shadowBlur = 26
-      ctx.fillStyle = h.color
-      ctx.beginPath(); ctx.arc(h.cx, h.cy, 9, 0, Math.PI*2); ctx.fill()
-      ctx.shadowBlur = 0
-      ctx.fillStyle = '#e8e6df'; ctx.font = 'bold 26px "Space Mono", monospace'; ctx.textAlign = 'center'
-      ctx.fillText(h.name, h.cx, h.cy - 22)
+
+/* ---------------------------- chapters ---------------------------- */
+
+const chaptersEl = $('chapters')
+TOUR.forEach((c, i) => {
+  const d = document.createElement('section')
+  d.className = 'chapter' + (i % 2 ? ' right' : '')
+  d.innerHTML = '<div class="idx mono">' + c.idx + ' / ' + c.district + '</div>' +
+                '<h2>' + c.title + '</h2>' +
+                '<p>' + c.body + '</p>'
+  chaptersEl.appendChild(d)
+})
+
+/* ------------------------------ people ---------------------------- */
+
+function makePerson(x, z, coat, accent, facing){
+  const g = new THREE.Group()
+  const bodyMat = new THREE.MeshBasicMaterial({ color: coat })
+  const trimMat = new THREE.MeshBasicMaterial({ color: accent })
+  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.13, 0.86, 8), bodyMat)
+  legs.position.y = 0.43
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.68, 10), bodyMat)
+  torso.position.y = 1.2
+  const coatFringe = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 0.1), trimMat)
+  coatFringe.position.set(0, 0.86, 0.14)
+  const shoulders = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.2, 0.1, 10), trimMat)
+  shoulders.position.y = 1.56
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.1, 6), bodyMat)
+  neck.position.y = 1.63
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.125, 12, 10), bodyMat)
+  head.position.y = 1.76
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.5, 0.62, 32),
+    new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.24, side: THREE.DoubleSide, depthWrite: false })
+  )
+  ring.rotation.x = -Math.PI/2
+  ring.position.y = 0.03
+  g.add(legs, torso, coatFringe, shoulders, neck, head, ring)
+  g.position.set(x, 0, z)
+  g.rotation.y = facing || 0
+  g.userData = { head, ring, sway: Math.random()*6 }
+  city.add(g)
+  return g
+}
+
+const PEOPLE = [
+  { id:'yuki',    name:'Yuki',   role:'Private cultural guide',  x:-2.4, z:-64, facing: 1.2,  coat:0x2b2620, accent:0xc9a961, from:0.16, to:0.34 },
+  { id:'aoi',     name:'Aoi',    role:'Executive chef',          x:0.7,  z:-68, facing:-0.9,  coat:0x33291f, accent:0xd8c9a8, from:0.28, to:0.46 },
+  { id:'haruki',  name:'Haruki', role:'Sake curator',            x:2.6,  z:-74, facing:-1.4,  coat:0x241f1c, accent:0xa8894f, from:0.42, to:0.60 },
+  { id:'ren',     name:'Ren',    role:'Design & fashion',        x:-2.6, z:-90, facing: 1.5,  coat:0x2a2530, accent:0xb9aec4, from:0.58, to:0.76 },
+  { id:'mika',    name:'Mika',   role:'Tea practitioner',        x:2.2,  z:-100,facing:-1.1,  coat:0x36302a, accent:0xc9a961, from:0.74, to:0.92 }
+]
+PEOPLE.forEach(p => {
+  p.mesh = makePerson(p.x, p.z, p.coat, p.accent, p.facing)
+  p.chip = $('chip-' + p.id)
+  p.chip.addEventListener('click', () => openDialogue(p.id))
+})
+
+/* --------------------------- dialogue ---------------------------- */
+
+const DIALOGUE = {
+  yuki: {
+    open: "Good evening. I know Tokyo can feel overwhelming at first — everywhere is lit, everywhere is loud. Tell me what you are looking for tonight.",
+    options: [
+      { t:'Show me somewhere quiet.', go:'quiet' },
+      { t:'I want exceptional food.', go:'food' },
+      { t:'I want to see Tokyo after midnight.', go:'midnight' },
+      { t:'Take me somewhere locals love.', go:'locals' }
+    ],
+    quiet: { say:"Then we leave the main roads entirely. Kagurazaka has stone lanes and old wooden facades — at this hour almost everything is closed, which is exactly the point. We walk, and stop wherever a light is still on.",
+      follow:"Shall I arrange it?", add:'Kagurazaka evening walk' },
+    food: { say:"Then I would not choose by reputation. Aoi is cooking in Shibuya tonight — twelve seats, no menu until you sit down. I will make the reservation and put us at the counter.",
+      follow:"I will confirm the counter seat.", add:'Private counter dinner' },
+    midnight: { say:"After midnight the interesting doors open. Golden Gai has no sign and no map — a hundred bars in six alleyways. We go in, we don't overstay, and we leave when it feels right.",
+      follow:"I will keep the evening open.", add:'Golden Gai, after hours' },
+    locals: { say:"Then let's skip the obvious places. There is a small counter in Kagurazaka where the chef still knows every guest by name. Six seats, seasonal menu, no sign outside.",
+      follow:"I will arrange the reservation.", add:'Kagurazaka counter' },
+    more: { say:"Of course. Six seats. A menu that changes with the market that morning. No sign outside — I will send you the address the day before, and the doorman will know your name.",
+      follow:"Add it to the evening?", add:'Kagurazaka counter' }
+  },
+  aoi: {
+    open: "Welcome. Sit anywhere at the counter — I will decide what you eat tonight. Tell me what you usually like, so I know what to avoid.",
+    options: [
+      { t:'I like strong, simple flavours.', go:'strong' },
+      { t:'I am curious about anything.', go:'curious' },
+      { t:'Something light before a long night.', go:'light' }
+    ],
+    strong: { say:"Good. Then tonkotsu, properly made — pork bone for two days, nothing added that does not need to be there. I will add a small dish of chashu you did not order.",
+      follow:"Add the dinner?", add:'Tonkotsu & chashu' },
+    curious: { say:"Then we start with the clear broth and work outward. Everything tonight was bought this morning. You will taste the difference by the second spoonful.",
+      follow:"Reserve the counter?", add:'Chef\'s tasting counter' },
+    light: { say:"Light, then. Clear soup, grilled fish, pickles. We keep it delicate and let the sake do the evening's work.",
+      follow:"Reserve the counter?", add:'Light counter dinner' }
+  },
+  haruki: {
+    open: "Good evening. Before we taste anything — how do you usually drink? There is no wrong answer, it only changes what I pour.",
+    options: [
+      { t:'Something rare and unfamiliar.', go:'rare' },
+      { t:'Dry and precise.', go:'dry' },
+      { t:'Full-bodied, warming.', go:'full' }
+    ],
+    rare: { say:"Then junmai daiginjo, poured cold and taken slowly. It will be quiet — almost nothing on the palate, which is exactly the point. The brewer is two hours from here.",
+      follow:"Arrange the tasting?", add:'Rare junmai tasting' },
+    dry: { say:"Then I would pour genshu, warmed a little below body temperature. It should smell of green apple and snow. Anything more elaborate would drown it.",
+      follow:"Arrange the tasting?", add:'Warm genshu flight' },
+    full: { say:"Then sairei, warmed properly — you will feel it in the chest. We will pair it with the grilled eel and let it sit on the tongue.",
+      follow:"Arrange the tasting?", add:'Sairei & grilled eel' }
+  },
+  ren: {
+    open: "Tokyo changes clothes every season and most people never see it. If you want the real thing, we skip the department store. What are you drawn to?",
+    options: [
+      { t:'Quiet, considered design.', go:'quiet' },
+      { t:'Traditional craft.', go:'craft' },
+      { t:'Something avant-garde.', go:'avant' }
+    ],
+    quiet: { say:"Then Daikanyama, and a studio with no sign. Everything is made by one person, in small runs. You will meet the maker, and nothing will be for sale before it is ready.",
+      follow:"Arrange the visit?", add:'Daikanyama atelier visit' },
+    craft: { say:"Nihonbashi, then. Indigo dyeing, hand-cut blades, a family working kintsugi since 1953. You will see the workshop before anyone shows you a price.",
+      follow:"Arrange the visit?", add:'Nihonbashi craft atelier' },
+    avant: { say:"Then we go where the students are — a converted warehouse in Kuramae with three collections that will not exist next year. I know the curator.",
+      follow:"Arrange the visit?", add:'Kuramae private viewing' }
+  },
+  mika: {
+    open: "Tea is not a drink here, it is a pause. Please — sit. If it is your first time, I will start where most people start.",
+    options: [
+      { t:'This is new to me.', go:'first' },
+      { t:'I know a little.', go:'some' },
+      { t:'Surprise me.', go:'surprise' }
+    ],
+    first: { say:"Then sencha, whisked in front of you, so you see the foam. The first bowl is always too hot and too bitter — that is correct. The second one is where it begins to make sense.",
+      follow:"Add the ceremony?", add:'Private tea ceremony' },
+    some: { say:"Then we skip the usual and go straight to gyokuro — shaded for three weeks, brewed cool, almost nothing on the tongue but very much there.",
+      follow:"Add the ceremony?", add:'Gyokuro tasting' },
+    surprise: { say:"Good. Then I will choose, and you will not know until it is in front of you. That is the most honest way to be introduced to anything.",
+      follow:"Add the ceremony?", add:"Master's choice ceremony" }
+  }
+}
+
+const dlgBody = $('dlg-body')
+const dlgOpts = $('dlg-opts')
+
+function dlgLine(who, txt, cls){
+  const d = document.createElement('div')
+  d.className = 'dlg-line' + (cls ? ' ' + cls : '')
+  d.innerHTML = '<div class="who">' + who + '</div><div class="txt">' + txt + '</div>'
+  dlgBody.appendChild(d)
+  dlgBody.scrollTop = dlgBody.scrollHeight
+}
+
+function dlgButtons(list){
+  dlgOpts.innerHTML = ''
+  list.forEach(b => {
+    const el = document.createElement('button')
+    el.className = 'dlg-opt' + (b.add ? ' add' : '')
+    el.textContent = b.t
+    el.addEventListener('click', () => {
+      if (b.add){ addToItinerary(b.add); dlgLine('Journey', 'Added to My Tokyo.'); return }
+      dlgLine(state.guide, b.t, 'user')
+      const node = DIALOGUE[state.guide][b.go]
+      setTimeout(()=>{
+        dlgLine('Yuki'.replace('Yuki', state.guide === 'yuki' ? 'Yuki' : nameOf(state.guide)), node.say)
+        speak(node.say)
+        dlgButtons([{ t:'Tell me more.', go:'more' }, { t: node.follow, add: node.add }])
+      }, 420)
     })
-  })
-  const mapPlane = new THREE.Mesh(new THREE.PlaneGeometry(70, 70), new THREE.MeshBasicMaterial({ map: tex }))
-  mapPlane.rotation.x = -Math.PI/2
-  mapGroup.add(mapPlane)
-  Object.entries(HOODS).forEach(([id, h])=>{
-    const wx = (h.cx/1024 - 0.5)*70
-    const wz = (h.cy/1024 - 0.5)*70
-    const marker = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.1, 1.1, 0.25, 20),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(h.color) })
-    )
-    marker.position.set(wx, 0.15, wz)
-    marker.userData = { type:'hood', id, baseScale:1 }
-    mapGroup.add(marker)
-    mapMarkers.push(marker)
-    const hit = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 3, 8), new THREE.MeshBasicMaterial({ visible:false }))
-    hit.position.set(wx, 1, wz)
-    hit.userData = { type:'hood', id, ref: marker }
-    mapGroup.add(hit)
-    mapMarkers.push(hit)
+    dlgOpts.appendChild(el)
   })
 }
-buildMap()
 
-let toastTimer = null
-function toast(msg, dur=3200){
-  const t = $('toast')
-  t.textContent = msg
-  t.classList.add('on')
-  clearTimeout(toastTimer)
-  toastTimer = setTimeout(()=>t.classList.remove('on'), dur)
+function nameOf(id){
+  const p = PEOPLE.find(q => q.id === id)
+  return p ? p.name : id
 }
 
-const DISCOVERY_TARGETS = { ramen:'HIDDEN RAMEN ALLEY', vending:'THE VENDING MACHINE', rooftop:'THE ROOFTOP', shrine:'THE TINY SHRINE', train:'THE LAST TRAIN' }
-function markDiscovery(key){
-  if(!(key in discoveries) || discoveries[key] === true) return
-  discoveries[key] = true
-  state.secrets = Object.keys(discoveries).filter(k=>discoveries[k]).length
-  const d = $('hud-disc')
-  d.textContent = 'DISCOVERIES ' + state.secrets + '/5'
-  d.style.color = 'var(--yellow)'
-  setTimeout(()=>{ d.style.color = '' }, 1200)
-  const navDisc = $('discoveries')
-  navDisc.textContent = 'TOKYO DISCOVERIES ' + state.secrets + '/5'
-  navDisc.classList.add('pulse')
-  setTimeout(()=>navDisc.classList.remove('pulse'), 1200)
-  const msgs = { 1:'ONE DOWN. FOUR TO GO.', 3:"YOU'RE STARTING TO NOTICE THINGS.", 4:'ONE MORE.', 5:'YOU FOUND THE CITY.' }
-  toast(msgs[state.secrets] || ('DISCOVERY FOUND — ' + DISCOVERY_TARGETS[key]), 3600)
-  if(soundOn) chime()
-  if(state.secrets >= 5) unlockCity()
-}
-function unlockCity(){
-  state.cityFound = true
-  const f = $('found')
-  f.classList.add('on')
-  setTimeout(()=>f.classList.remove('on'), 3400)
-  setTimeout(()=>toast('SECRET ROOFTOP UNLOCKED — SOME PLACES AREN\'T ON THE MAP.', 5000), 3200)
-  setTimeout(()=>{ $('final').classList.add('on'); state.finalShown = true }, 4200)
+let pendingAdd = null
+function openDialogue(id){
+  const d = DIALOGUE[id]
+  if (!d) return
+  state.guide = id
+  pendingAdd = d
+  $('dlg-name').textContent = nameOf(id)
+  $('dlg-role').textContent = PEOPLE.find(q => q.id === id).role
+  dlgBody.innerHTML = ''
+  dlgOpts.innerHTML = ''
+  dlgLine(nameOf(id), d.open)
+  dlgButtons(d.options)
+  $('dialogue').classList.add('on')
+  document.body.classList.add('locked')
+  speak(d.open)
 }
 
-const hoverables = []
-city.traverse(o=>{ if(o.userData && o.userData.type && o.userData.type!=='sign') hoverables.push(o) })
-const signMeshes = signs
+function closeDialogue(){
+  $('dialogue').classList.remove('on')
+  document.body.classList.remove('locked')
+  stopSpeaking()
+  state.guide = null
+}
 
-let hovered = null
-let hoveredSign = null
-function updateHover(){
-  if(state.mapOpen){
-    raycaster.setFromCamera(pointer, mapCamera)
-    const hits = raycaster.intersectObjects(mapMarkers.filter(m=>m.userData.type==='hood'))
-    const tt = $('map-tooltip')
-    if(hits.length){
-      const id = hits[0].object.userData.id
-      const h = HOODS[id]
-      tt.textContent = h.name + ' — ' + h.vibe
-      tt.style.opacity = 1
-      tt.style.left = (cursorTarget.x+18)+'px'
-      tt.style.top = (cursorTarget.y+14)+'px'
-      setCursor('big', 'GO')
-    } else {
-      tt.style.opacity = 0
-      setCursor('default')
+$('dlg-close').addEventListener('click', closeDialogue)
+
+/* ----------------------------- voice ------------------------------ */
+
+let recog = null
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+const micBtn = $('dlg-mic')
+const conMic = $('con-mic')
+const voiceOk = !!(SR && window.speechSynthesis)
+
+if (!voiceOk){
+  ;[micBtn, conMic].forEach(b => { b.disabled = true; b.title = 'Voice not supported in this browser' })
+}
+
+function startListening(onText){
+  if (!voiceOk) return
+  if (state.listening){ recog && recog.stop(); return }
+  try {
+    recog = new SR()
+    recog.lang = 'en-US'
+    recog.interimResults = false
+    recog.maxAlternatives = 1
+    recog.onresult = e => { const t = e.results[0][0].transcript; if (t) onText(t) }
+    recog.onerror = () => { toast('Voice input was not available') }
+    recog.onend = () => {
+      state.listening = false
+      micBtn.classList.remove('live'); conMic.classList.remove('live')
     }
+    recog.start()
+    state.listening = true
+    micBtn.classList.add('live'); conMic.classList.add('live')
+  } catch (err) {
+    toast('Voice input is not available here')
+  }
+}
+
+micBtn.addEventListener('click', () => startListening(t => {
+  dlgLine(nameOf(state.guide), t, 'user')
+  const opts = DIALOGUE[state.guide].options
+  const match = opts.find(o => t.toLowerCase().includes(o.t.split(' ')[0].toLowerCase()))
+  const node = match ? DIALOGUE[state.guide][match.go] : null
+  if (node){
+    setTimeout(() => {
+      dlgLine(nameOf(state.guide), node.say)
+      speak(node.say)
+      dlgButtons([{ t:'Tell me more.', go:'more' }, { t: node.follow, add: node.add }])
+    }, 400)
+  } else {
+    setTimeout(() => {
+      dlgLine(nameOf(state.guide), 'Let us begin again — choose what suits you tonight.')
+      dlgButtons(DIALOGUE[state.guide].options)
+    }, 400)
+  }
+}))
+
+function speak(text){
+  if (!voiceOk || !window.speechSynthesis) return
+  stopSpeaking()
+  const u = new SpeechSynthesisUtterance(text)
+  u.rate = 0.94; u.pitch = 0.96; u.lang = 'en-GB'
+  window.speechSynthesis.speak(u)
+}
+function stopSpeaking(){ if (window.speechSynthesis) window.speechSynthesis.cancel() }
+
+$('dlg-listen').addEventListener('click', () => {
+  if (!voiceOk){ toast('Speech is not supported in this browser'); return }
+  const lines = dlgBody.querySelectorAll('.dlg-line .txt')
+  const last = lines[lines.length - 1]
+  if (last) speak(last.textContent)
+})
+
+/* --------------------------- itinerary ---------------------------- */
+
+const IT_STORE = 'yoru-itinerary'
+let itinerary = []
+try { itinerary = JSON.parse(localStorage.getItem(IT_STORE) || '[]') } catch (e) { itinerary = [] }
+
+function saveIt(){
+  try { localStorage.setItem(IT_STORE, JSON.stringify(itinerary)) } catch (e) {}
+}
+
+function addToItinerary(title){
+  if (itinerary.some(x => x.title === title)){
+    toast('Already in My Tokyo')
+  } else {
+    itinerary.push({ title, time: nextSlot() })
+    saveIt()
+    toast('Added to My Tokyo')
+  }
+  renderItinerary()
+}
+
+function nextSlot(){
+  const base = 18 * 60 + 30
+  return base + itinerary.length * 90
+}
+
+function renderItinerary(){
+  const list = $('itin-list')
+  const tl = $('timeline')
+  list.innerHTML = ''
+  tl.innerHTML = ''
+  if (!itinerary.length){
+    const li = document.createElement('li')
+    li.innerHTML = '<div class="itin-empty">Nothing arranged yet.<br>Speak with someone in the city, or choose a destination on the map, and it will appear here.</div>'
+    list.appendChild(li)
     return
   }
-  setCursor('default')
-}
-window.addEventListener('pointermove', updateHover)
+  itinerary.forEach((it, i) => {
+    const li = document.createElement('li')
+    li.innerHTML = '<span class="n mono">' + String(i+1).padStart(2,'0') + '</span>' +
+      '<span><span class="t">' + it.title + '</span><span class="m">' + fmtTime(it.time) + ' · Illustrative</span></span>' +
+      '<button class="rm" aria-label="Remove ' + it.title + '">×</button>'
+    li.querySelector('.rm').addEventListener('click', () => {
+      itinerary = itinerary.filter(x => x.title !== it.title)
+      saveIt(); renderItinerary()
+    })
+    list.appendChild(li)
 
-window.addEventListener('pointerdown', e=>{
-  if(state.mapOpen) return
-  if(state.mode === 'street'){
-    if(!IS_TOUCH && document.pointerLockElement !== document.getElementById('scene')){
-      document.getElementById('scene').requestPointerLock()
-    } else {
-      tryInteract()
-    }
+    const t = document.createElement('li')
+    t.innerHTML = '<span class="time">' + fmtTime(it.time) + '</span><span class="what">' + it.title + '</span>'
+    tl.appendChild(t)
+  })
+}
+
+function fmtTime(mins){
+  const h = Math.floor(mins / 60) % 24
+  const m = mins % 60
+  return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0')
+}
+
+renderItinerary()
+
+/* ------------------------------- map ------------------------------ */
+
+const CATEGORIES = ['Dining','Culture','Design','Nightlife','Wellness','Shopping','Hidden']
+
+const PLACES = [
+  { n:'Shibuya Crossing',      d:'Shibuya',        c:'Nightlife', lat:35.6595, lng:139.7005,
+    why:'The busiest pedestrian junction in the world. Every evening at 20:45 the signals change and roughly three thousand people cross in a single diagonal.',
+    t:'19:30 — 20:45, before the crowds thicken', e:'Private vantage above the crossing, then a walk through the side streets behind the station.' },
+  { n:'Shibuya Sky',           d:'Shibuya',        c:'Culture',  lat:35.6584, lng:139.7020,
+    why:'An open-air observation deck on the top floors of the Scramble Square tower, with no glass between you and the city.',
+    t:'Sunset, or last boarding', e:'Reserved entry and a quiet hour above the crossing before the building empties.' },
+  { n:'Shinjuku Gyoen',        d:'Shinjuku',       c:'Wellness', lat:35.6852, lng:139.7100,
+    why:'One of the largest landscaped gardens in the city. In autumn it is arguably the most beautiful place in Tokyo, and almost nobody is there.',
+    t:'Late morning, or 16:00 in autumn', e:'Garden entry timed to avoid the midday, with tea afterwards in the Shinjuku saki.' },
+  { n:'Golden Gai',            d:'Shinjuku',       c:'Hidden',   lat:35.6938, lng:139.7024,
+    why:'Six narrow alleys holding around two hundred bars, each with six or eight seats. Almost none of them have a sign.',
+    t:'23:00 — 02:00', e:'Hosted introductions at three bars, chosen for what is open that night rather than what is famous.' },
+  { n:'Omoide Yokocho',       d:'Shinjuku',       c:'Dining',   lat:35.6910, lng:139.7030,
+    why:'"Memory Lane" — a string of bars barely a metre wide, wedged under the railway. Small plates, loud, genuinely local.',
+    t:'18:00 — 22:00', e:'A seat held at one counter, then a walk of the lane as it fills.' },
+  { n:'Senso-ji',              d:'Asakusa',        c:'Culture',  lat:35.7148, lng:139.7967,
+    why:'Tokyo\'s oldest continuously running temple, approached through Nakamise — a street of small traditional shops that has been trading for three centuries.',
+    t:'07:00, or after 17:00 in autumn', e:'Early access through Nakamise before the day visitors, then tea on the temple grounds.' },
+  { n:'Asakusa Nakamise',      d:'Asakusa',        c:'Shopping', lat:35.7118, lng:139.7950,
+    why:'Traditional sweets, crafts and knives from shops that have occupied the same ground for generations.',
+    t:'09:00 — 11:00', e:'A buying guide and introductions to three family-run shops.' },
+  { n:'Tokyo Station Marunouchi', d:'Chiyoda',     c:'Dining',   lat:35.6812, lng:139.7671,
+    why:'A century of brick station architecture housing some of the finest dining in the city, from the humblest katsu counter to two-star sushi.',
+    t:'Lunch, or 17:30 for early dinner', e:'A tasting route through the basement counters, chosen around your preferences.' },
+  { n:'Ginza',                 d:'Ginza',          c:'Shopping', lat:35.6717, lng:139.7650,
+    why:'Tokyo\'s most elegant address — flagship shops, department stores and the Kabuki-za theatre, all within a short walk.',
+    t:'Weekday afternoon', e:'Private shopping day with a textile buyer, including a kimono fitting appointment.' },
+  { n:'Akihabara',             d:'Chiyoda',        c:'Culture',  lat:35.6984, lng:139.7731,
+    why:'The district built on electronics and anime now runs its own fashion weeks. The older hobby shops are still here, mostly unchanged.',
+    t:'14:00 — 17:00', e:'A collector\'s route through the back streets, ending in a private arcade floor.' },
+  { n:'Harajuku / Omotesando', d:'Shibuya',        c:'Design',   lat:35.6652, lng:139.7124,
+    why:'Boutique architecture by the world\'s most demanding clients, in a corridor barely a kilometre long.',
+    t:'Weekday 11:00', e:'An architectural walk with a local architect, coffee between buildings.' },
+  { n:'Meiji Jingu',           d:'Shibuya',        c:'Culture',  lat:35.6764, lng:139.6993,
+    why:'A Shinto shrine built in 1920 in classical style, standing in a forest that was planted on what was once the outer grounds of Edo.',
+    t:'Morning, before the tour groups', e:'Private shrine visit with a priest, followed by the forest walk.' },
+  { n:'Kagurazaka',            d:'Shinjuku',       c:'Hidden',   lat:35.7053, lng:139.7345,
+    why:'Stone lanes, old wooden facades and restaurants that have kept the same sign — and the same chef — for three generations.',
+    t:'Evening, after 19:00', e:'A walk along the stone lanes ending at a six-seat counter with no signage.' },
+  { n:'Daikanyama',            d:'Shibuya',        c:'Design',   lat:35.6481, lng:139.7032,
+    why:'A low-rise neighbourhood that became Tokyo\'s most discreet luxury address, full of studios rather than storefronts.',
+    t:'Weekday 13:00', e:'Studio visits, largely out of sight of the street.' },
+  { n:'Shimokitazawa',         d:'Setagaya',       c:'Nightlife',lat:35.6616, lng:139.6683,
+    why:'Vintage, record shops, tiny live houses and a rail line running four metres above the street. Tokyo at half speed.',
+    t:'Weekday evening', e:'Record shop trail, then a basement live house.' },
+  { n:'Roppongi Hills',        d:'Minato',         c:'Culture',  lat:35.6604, lng:139.7292,
+    why:'An art museum and design complex built on a hill, with a view back over the towers of Azabu.',
+    t:'11:00 — 17:00', e:'Private curator-led viewing, timed to avoid the queue.' },
+  { n:'Tsukiji Outer Market',  d:'Chuo',           c:'Dining',   lat:35.6654, lng:139.7707,
+    why:'The working market behind the wholesale fish market. Knives, tamagoyaki, and a great deal of very early conversation.',
+    t:'06:30 — 09:00', e:'Breakfast through the market with a buyer, finishing at a standing counter.' },
+  { n:'Yoyogi Park',           d:'Shibuya',        c:'Wellness', lat:35.6723, lng:139.6947,
+    why:'The site of the 1964 Olympic stadium, and a remarkable place to sit and watch the city do nothing in particular.',
+    t:'Morning', e:'A quiet hour with tea, then a walk to Harajuku.' },
+  { n:'Nihonbashi',            d:'Chuo',           c:'Design',   lat:35.6839, lng:139.7745,
+    why:'A district of small specialist workshops — cutlery, indigo, lacquer, and a family doing kintsugi since 1953.',
+    t:'Weekday 10:00', e:'Workshop introductions and the chance to try each craft.' },
+  { n:'Kuramae',               d:'Taito',          c:'Design',   lat:35.7046, lng:139.7917,
+    why:'Where most of Tokyo\'s independent designers now keep their studios, in converted warehouses and old apartment blocks.',
+    t:'Weekday 12:00', e:'Private viewing at three studios, with the curator.' },
+  { n:'Azabudai Hills',        d:'Minato',         c:'Wellness', lat:35.6622, lng:139.7392,
+    why:'Tokyo rebuilt part of the old military site into a low-rise district with the city\'s best maintained gardens and a new Mori JP Tower.',
+    t:'Late afternoon', e:'Gardens, then the observation deck as the light drops.' },
+  { n:'Shinjuku Gyoen Night', d:'Shinjuku',       c:'Culture',  lat:35.6852, lng:139.7100,
+    why:'The garden opens after dark on selected evenings, when the lanterns are lit and the daytime crowds have gone.',
+    t:'Selected autumn evenings only', e:'Timed entry with a lantern walk.' }
+]
+
+let map = null
+let mapMarkers = {}
+
+function initMap(){
+  if (map) return
+  const el = $('map')
+  if (!el) return
+  map = new maplibregl.Map({
+    container: el,
+    center: [139.74, 35.69],
+    zoom: 11.6,
+    attributionControl: true,
+    dragRotate: true,
+    maxZoom: 17,
+    minZoom: 9
+  })
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+  map.on('load', () => {
+    map.addSource('carto', {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
+      ],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors · © CARTO'
+    })
+    map.addLayer({ id: 'carto', type: 'raster', source: 'carto', paint: { 'raster-opacity': 0.72 } })
+    PLACES.forEach(p => {
+      const m = new maplibregl.Marker({ color: p.c === 'Hidden' ? '#c9a961' : '#f2ece1', anchor: 'bottom' })
+        .setLngLat([p.lng, p.lat])
+        .setPopup(new maplibregl.Popup({ offset: 14, closeButton: false }).setHTML('<div>' + p.n + '</div>'))
+        .addTo(map)
+      m.getElement().addEventListener('click', () => showPlace(p))
+      mapMarkers[p.n] = m
+    })
+  })
+  setTimeout(() => map && map.resize(), 400)
+}
+
+function showPlace(p){
+  $('map-empty').classList.add('hidden')
+  const d = $('map-detail')
+  d.classList.add('on')
+  $('d-cat').textContent = p.c
+  $('d-name').textContent = p.n
+  $('d-district').textContent = p.d
+  $('d-why').textContent = p.why
+  $('d-time').textContent = p.t
+  $('d-exp').textContent = p.e
+  $('d-add').onclick = () => { addToItinerary(p.n); map.flyTo([p.lng, p.lat], 13.4, { duration: 1400 }) }
+}
+
+function buildFilters(){
+  const wrap = $('filters')
+  CATEGORIES.forEach(c => {
+    const b = document.createElement('button')
+    b.textContent = c
+    b.setAttribute('aria-pressed', 'false')
+    b.addEventListener('click', () => {
+      if (state.filters.has(c)) state.filters.delete(c)
+      else state.filters.add(c)
+      b.classList.toggle('on', state.filters.has(c))
+      b.setAttribute('aria-pressed', String(state.filters.has(c)))
+      PLACES.forEach(p => {
+        const vis = !state.filters.size || state.filters.has(p.c)
+        const m = mapMarkers[p.n]
+        if (m) m.getElement().style.display = vis ? '' : 'none'
+      })
+      if (map){
+        const pts = PLACES.filter(p => !state.filters.size || state.filters.has(p.c))
+        if (pts.length){
+          const b2 = new maplibregl.LngLatBounds()
+          pts.forEach(p => b2.extend([p.lng, p.lat]))
+          map.fitBounds(b2, { padding: 70, maxZoom: 13.2, duration: 1200 })
+        }
+      }
+    })
+    wrap.appendChild(b)
+  })
+}
+buildFilters()
+
+/* --------------------------- concierge ---------------------------- */
+
+const CON_SUGGESTIONS = [
+  'A quiet dinner somewhere low-key',
+  'What should we do after midnight?',
+  'I want Japanese fashion, not department stores',
+  'Somewhere traditional for a first visit',
+  'A romantic evening'
+]
+
+const CON_LOG = $('con-log')
+function conLine(who, txt, cls){
+  const d = document.createElement('div')
+  d.className = 'con-line' + (cls ? ' ' + cls : '')
+  d.innerHTML = '<div class="who">' + who + '</div><div class="txt">' + txt + '</div>'
+  CON_LOG.appendChild(d)
+  CON_LOG.scrollTop = CON_LOG.scrollHeight
+}
+
+function conAnswer(q){
+  const s = q.toLowerCase()
+  const has = arr => arr.some(k => s.includes(k))
+  if (has(['quiet','calm','peace','relax','slow'])){
+    return 'We would put you in Kagurazaka — stone lanes, old wood, and a counter with six seats and no sign. I will send the address on the day.'
   }
-  if(state.mode === 'hero'){
-    raycaster.setFromCamera(pointer, camera)
-    const hits = raycaster.intersectObjects(puddles, false)
-    if(hits.length){ spawnRipple(hits[0].point.x, hits[0].point.z); if(soundOn) drip() }
+  if (has(['dinner','food','eat','restaurant','meal','taste','ramen','sushi'])){
+    return 'Aoi is cooking in Shibuya. Twelve seats at the counter, a menu written when you arrive, and a chef who has been at it since five.'
   }
+  if (has(['midnight','late','night','after hours'])){
+    return 'After midnight the doors open. Golden Gai has two hundred bars in six alleys and almost no signage — I will arrange three introductions.'
+  }
+  if (has(['crowd','tourist','tour','busy','packed'])){
+    return 'Then we go the other way entirely. Daikanyama and Nihonbashi — small studios, working workshops, and almost nobody watching.'
+  }
+  if (has(['fashion','design','clothes','clothing','shop','vintage','fabric'])){
+    return 'Harajuku and Omotesando for the architecture, then Daikanyama for the makers. We skip the department stores unless you ask for them.'
+  }
+  if (has(['tradition','traditional','culture','temple','shrine','first','classic'])){
+    return 'Senso-ji before nine, when Nakamise belongs to the shopkeepers rather than the coaches. A priest will receive you privately afterwards.'
+  }
+  if (has(['romantic','romance','couple','anniversary','partner'])){
+    return 'A quiet counter in Kagurazaka, then the Shibuya Sky deck at last boarding, then a bar with six seats in Golden Gai. We would keep it unhurried.'
+  }
+  if (has(['tea','garden','wellness','calm','onsen','bath'])){
+    return 'Azabudai Gardens for an hour before dusk, then a private tea ceremony with Mika — the gardens, then the pause.'
+  }
+  if (has(['nightlife','club','music','bar','listen','live'])){
+    return 'Shimokitazawa first for live music in a basement, then anywhere that still has room. I would rather you heard two rooms properly than six in a rush.'
+  }
+  if (has(['child','family','kids'])){
+    return 'We keep it slow and short — Ueno in the morning, the gardens at Azabudai in the afternoon, and home before anyone gets tired.'
+  }
+  return 'Tell me a little more — the mood, the hour, or simply what you would rather not do, and I will narrow it to one evening.'
+}
+
+function askConcierge(text){
+  if (!text.trim()) return
+  conLine('You', text, 'user')
+  const a = conAnswer(text)
+  setTimeout(() => { conLine('Concierge', a); speak(a) }, 420)
+}
+
+$('con-send').addEventListener('click', () => {
+  const i = $('con-input')
+  askConcierge(i.value)
+  i.value = ''
+})
+$('con-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter'){ askConcierge(e.target.value); e.target.value = '' }
+})
+conMic.addEventListener('click', () => startListening(t => {
+  $('con-input').value = t
+  askConcierge(t)
+  $('con-input').value = ''
+}))
+conLine('Concierge', 'Good evening. Tell me what kind of night you are in the mood for — or ask me something directly.')
+const sugWrap = $('con-sugg')
+CON_SUGGESTIONS.forEach(s => {
+  const b = document.createElement('button')
+  b.textContent = s
+  b.addEventListener('click', () => askConcierge(s))
+  sugWrap.appendChild(b)
 })
 
 const cans = []
 const canGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.12, 8)
 function spawnCan(g){
-  const can = new THREE.Mesh(canGeo, new THREE.MeshBasicMaterial({ color: [0xff5a36,0x00d4c8,0xffe95a,0xff2e88][Math.floor(Math.random()*4)] }))
+  const can = new THREE.Mesh(canGeo, new THREE.MeshBasicMaterial({ color: [0xc9a961,0x8c3a2e,0xa8894f,0xe8dcc0][Math.floor(Math.random()*4)] }))
   can.position.copy(g.position)
   can.position.y = 1.2
   can.position.z += 0.5
@@ -800,670 +1245,334 @@ function spawnCan(g){
   cans.push(can)
 }
 
-const arcadeCv = $('arcade-canvas')
-const actx = arcadeCv.getContext('2d')
-let arcadeOn = false, arcadeTargets = [], arcadeScore = 0, arcadeTime = 10, arcadeLast = 0, arcadeSpawn = 0
-function openArcade(){
-  arcadeOn = true
-  arcadeTargets = []; arcadeScore = 0; arcadeTime = 10; arcadeLast = performance.now(); arcadeSpawn = 0
-  $('arcade').classList.add('on')
-  $('arcade-score').textContent = 'SCORE 0'
-  $('arcade-end').textContent = ''
+/* ------------------------------ toast ----------------------------- */
+
+let toastTimer = null
+function toast(msg, dur=3400){
+  const t = $('toast')
+  t.textContent = msg
+  t.classList.add('on')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => t.classList.remove('on'), dur)
 }
-function closeArcade(){ arcadeOn = false; $('arcade').classList.remove('on') }
-$('arcade-exit').addEventListener('click', closeArcade)
-arcadeCv.addEventListener('pointerdown', e=>{
-  const r = arcadeCv.getBoundingClientRect()
-  const x = (e.clientX - r.left) * (arcadeCv.width / r.width)
-  const y = (e.clientY - r.top) * (arcadeCv.height / r.height)
-  for(let i=arcadeTargets.length-1;i>=0;i--){
-    const t = arcadeTargets[i]
-    if(Math.hypot(x-t.x, y-t.y) < t.r){
-      arcadeTargets.splice(i,1)
-      arcadeScore++
-      $('arcade-score').textContent = 'SCORE ' + arcadeScore
-    }
-  }
-})
-function drawArcade(dt){
-  const now = performance.now()
-  const gdt = (now - arcadeLast)/1000
-  arcadeLast = now
-  arcadeTime -= gdt
-  arcadeSpawn -= gdt
-  if(arcadeSpawn <= 0 && arcadeTime > 0){
-    arcadeSpawn = 0.55
-    arcadeTargets.push({ x: 40+Math.random()*(arcadeCv.width-80), y: 40+Math.random()*(arcadeCv.height-80), r: 26, life: 1 })
-  }
-  actx.fillStyle = '#02040a'
-  actx.fillRect(0,0,arcadeCv.width, arcadeCv.height)
-  arcadeTargets.forEach(t=>{
-    t.life -= gdt*0.7
-    actx.globalAlpha = clamp(t.life, 0, 1)
-    actx.fillStyle = t.life > 0.5 ? '#00d4c8' : '#ff2e88'
-    actx.beginPath(); actx.arc(t.x, t.y, t.r*t.life, 0, Math.PI*2); actx.fill()
-    actx.globalAlpha = 1
-  })
-  arcadeTargets = arcadeTargets.filter(t=>t.life > 0)
-  $('arcade-time').textContent = Math.max(0, Math.ceil(arcadeTime))
-  if(arcadeTime <= 0){
-    $('arcade-end').textContent = 'FINAL SCORE ' + arcadeScore + ' — THE MACHINE REMEMBERS'
-    arcadeTargets = []
-  }
-  actx.strokeStyle = 'rgba(232,230,223,.2)'
-  actx.strokeRect(4,4,arcadeCv.width-8, arcadeCv.height-8)
-}
+
+/* ------------------------------ sound ----------------------------- */
 
 let soundOn = false, audioCtx = null, masterGain = null
 function initAudio(){
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+  if (audioCtx) return
+  const AC = window.AudioContext || window.webkitAudioContext
+  if (!AC) return
+  audioCtx = new AC()
   masterGain = audioCtx.createGain()
   masterGain.gain.value = 0
   masterGain.connect(audioCtx.destination)
+
   const len = audioCtx.sampleRate * 2
-  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate)
-  const data = buf.getChannelData(0)
-  for(let i=0;i<len;i++) data[i] = Math.random()*2 - 1
-  const noise = audioCtx.createBufferSource()
-  noise.buffer = buf; noise.loop = true
-  const rainFilter = audioCtx.createBiquadFilter()
-  rainFilter.type = 'bandpass'; rainFilter.frequency.value = 900; rainFilter.Q.value = 0.6
-  const rainGain = audioCtx.createGain(); rainGain.gain.value = 0.05
-  noise.connect(rainFilter); rainFilter.connect(rainGain); rainGain.connect(masterGain)
-  noise.start()
+  const mk = fill => {
+    const b = audioCtx.createBuffer(1, len, audioCtx.sampleRate)
+    const d = b.getChannelData(0)
+    let last = 0
+    for (let i=0;i<len;i++){ const w = Math.random()*2-1; last = (last + 0.02*w)/1.02; d[i] = fill ? last*3 : w }
+    return b
+  }
+
+  const rain = audioCtx.createBufferSource()
+  rain.buffer = mk(false); rain.loop = true
+  const rf = audioCtx.createBiquadFilter()
+  rf.type = 'bandpass'; rf.frequency.value = 760; rf.Q.value = 0.5
+  const rg = audioCtx.createGain(); rg.gain.value = 0.055
+  rain.connect(rf); rf.connect(rg); rg.connect(masterGain)
+  rain.start()
+
   const hum = audioCtx.createBufferSource()
-  const buf2 = audioCtx.createBuffer(1, len, audioCtx.sampleRate)
-  const d2 = buf2.getChannelData(0)
-  let last = 0
-  for(let i=0;i<len;i++){ const w = Math.random()*2-1; last = (last + 0.02*w)/1.02; d2[i] = last*3 }
-  hum.buffer = buf2; hum.loop = true
-  const humFilter = audioCtx.createBiquadFilter()
-  humFilter.type = 'lowpass'; humFilter.frequency.value = 180
-  const humGain = audioCtx.createGain(); humGain.gain.value = 0.12
-  hum.connect(humFilter); humFilter.connect(humGain); humGain.connect(masterGain)
+  hum.buffer = mk(true); hum.loop = true
+  const hf = audioCtx.createBiquadFilter()
+  hf.type = 'lowpass'; hf.frequency.value = 170
+  const hg = audioCtx.createGain(); hg.gain.value = 0.11
+  hum.connect(hf); hf.connect(hg); hg.connect(masterGain)
   hum.start()
-  const humOsc = audioCtx.createOscillator()
-  humOsc.type = 'sine'; humOsc.frequency.value = 48
-  const humOscGain = audioCtx.createGain(); humOscGain.gain.value = 0.02
-  humOsc.connect(humOscGain); humOscGain.connect(masterGain)
-  humOsc.start()
+
+  const sub = audioCtx.createOscillator()
+  sub.type = 'sine'; sub.frequency.value = 47
+  const sg = audioCtx.createGain(); sg.gain.value = 0.018
+  sub.connect(sg); sg.connect(masterGain)
+  sub.start()
 }
-function blip(){
-  if(!audioCtx) return
-  const o = audioCtx.createOscillator(); const g = audioCtx.createGain()
-  o.type = 'sine'; o.frequency.value = 620
-  g.gain.setValueAtTime(0.06, audioCtx.currentTime)
-  g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.12)
-  o.connect(g); g.connect(masterGain)
-  o.start(); o.stop(audioCtx.currentTime + 0.13)
-}
-function drip(){
-  if(!audioCtx) return
-  const o = audioCtx.createOscillator(); const g = audioCtx.createGain()
-  o.type = 'sine'; o.frequency.setValueAtTime(900, audioCtx.currentTime)
-  o.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.2)
-  g.gain.setValueAtTime(0.08, audioCtx.currentTime)
-  g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.25)
-  o.connect(g); g.connect(masterGain)
-  o.start(); o.stop(audioCtx.currentTime + 0.26)
-}
-function chime(){
-  if(!audioCtx) return
-  [880, 659].forEach((f, i)=>{
-    const o = audioCtx.createOscillator(); const g = audioCtx.createGain()
-    o.type = 'sine'; o.frequency.value = f
-    const t0 = audioCtx.currentTime + i*0.18
-    g.gain.setValueAtTime(0.0001, t0)
-    g.gain.exponentialRampToValueAtTime(0.05, t0 + 0.03)
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5)
-    o.connect(g); g.connect(masterGain)
-    o.start(t0); o.stop(t0 + 0.55)
-  })
-}
-$('sound-toggle').addEventListener('click', ()=>{
-  if(!audioCtx) initAudio()
+$('sound-toggle').addEventListener('click', () => {
+  initAudio()
+  if (!audioCtx) return
   soundOn = !soundOn
-  if(audioCtx.state === 'suspended') audioCtx.resume()
-  masterGain.gain.linearRampToValueAtTime(soundOn ? 0.5 : 0, audioCtx.currentTime + 0.6)
+  if (audioCtx.state === 'suspended') audioCtx.resume()
+  masterGain.gain.linearRampToValueAtTime(soundOn ? 0.45 : 0, audioCtx.currentTime + 0.7)
   $('sound-toggle').textContent = soundOn ? 'SOUND ON' : 'SOUND OFF'
 })
 
-const enterBtn = $('enter-btn')
-let magX = 0, magY = 0
-enterBtn.addEventListener('click', enterCity)
-function enterCity(){
-  if(state.mode !== 'hero') return
-  state.mode = 'street'
-  $('hero').classList.add('off')
-  $('hud').classList.add('on')
-  $('zone-label').classList.add('on')
-  $('hint').classList.add('on')
-  $('cross').classList.add('on')
-  document.body.style.height = '100vh'
-  document.body.style.overflow = 'hidden'
-  trans = { t:0, fromPos: camera.position.clone(), fromLook: currentLook.clone() }
-  $('intro').classList.add('on')
-  setTimeout(()=>$('intro').classList.remove('on'), 5500)
-  toast('WASD TO WALK — E TO INTERACT — M FOR MAP', 5000)
-  if(IS_TOUCH) document.body.classList.add('mob')
+/* ------------------------------- nav ------------------------------ */
+
+$('begin').addEventListener('click', startJourney)
+$('explore').addEventListener('click', startJourney)
+function startJourney(){
+  state.mode = 'tour'
+  $('hero').classList.add('gone')
+  setTimeout(() => $('hero').classList.add('hidden'), 1200)
+  window.scrollTo({ top: chaptersEl.offsetTop + 10, behavior: 'smooth' })
+  setTimeout(() => toast('Scroll to move through the city'), 900)
 }
 
-const INTERACTS = [
-  { x: 2.2, z: -68, r: 3, label:'RAMEN — LOOK INSIDE', type:'ramen' },
-  { x: 3.4, z: -66, r: 2.5, label:'VENDING — PRESS BUTTON', type:'vending' },
-  { x: -3.6, z: -71, r: 2.5, label:'VENDING — PRESS BUTTON', type:'vending' },
-  { x: 3.2, z: -74, r: 2.5, label:'VENDING — PRESS BUTTON', type:'vending' },
-  { x: -3.4, z: -92, r: 2.5, label:'VENDING — PRESS BUTTON', type:'vending' },
-  { x: 3.5, z: -95, r: 2.5, label:'VENDING — PRESS BUTTON', type:'vending' },
-  { x: -2.2, z: -94, r: 3, label:'ARCADE — PLAY', type:'arcade' },
-  { x: 1.6, z: -96, r: 2.5, label:'CLAW MACHINE', type:'claw' },
-  { x: 1.9, z: -70, r: 2.5, label:'STRAY CAT', type:'cat' },
-  { x: -6.5, z: -72.5, r: 2.5, label:'OLD DOOR', type:'door' },
-  { x: 10.9, z: -95, r: 2.5, label:'RED SUN MARK', type:'symbol' },
-  { x: -2.9, z: -77, r: 2.5, label:'TINY SHRINE', type:'shrine' },
-  { x: 0, z: -106, r: 3.5, label:'ROOFTOP GATE', type:'rooftop' }
-]
-const hintEl = $('hint')
-const joy = { active:false, x:0, y:0 }
-const joyEl = $('joy'), joyKnob = $('joy-knob')
-let joyTouch = null
-joyEl.addEventListener('pointerdown', e=>{ joyTouch = e.pointerId; joyEl.setPointerCapture(e.pointerId) })
-joyEl.addEventListener('pointermove', e=>{
-  if(e.pointerId !== joyTouch) return
-  const r = joyEl.getBoundingClientRect()
-  const cx = r.left + r.width/2, cy = r.top + r.height/2
-  let dx = (e.clientX - cx)/(r.width/2), dy = (e.clientY - cy)/(r.height/2)
-  const L = Math.hypot(dx, dy)
-  if(L > 1){ dx/=L; dy/=L }
-  joy.x = dx; joy.y = dy
-  joy.active = true
-  joyKnob.style.transform = 'translate(calc(-50% + ' + (dx*30) + 'px), calc(-50% + ' + (dy*30) + 'px))'
-})
-joyEl.addEventListener('pointerup', e=>{
-  if(e.pointerId !== joyTouch) return
-  joyTouch = null; joy.x = 0; joy.y = 0; joy.active = false
-  joyKnob.style.transform = 'translate(-50%,-50%)'
-})
-$('btn-e').addEventListener('click', tryInteract)
-$('btn-m').addEventListener('click', ()=>{ state.mapOpen ? closeMap() : openMap() })
-$('ramen-close').addEventListener('click', ()=>$('ramen-menu').classList.remove('on'))
+$('nav-journey').addEventListener('click', () => window.scrollTo({ top: chaptersEl.offsetTop, behavior: 'smooth' }))
+$('nav-atlas').addEventListener('click', () => { initMap(); $('atlas').scrollIntoView({ behavior:'smooth' }) })
+$('nav-mine').addEventListener('click', () => $('itinerary').scrollIntoView({ behavior:'smooth' }))
+$('design').addEventListener('click', () => $('concierge').scrollIntoView({ behavior:'smooth' }))
+$('close-design').addEventListener('click', () => $('concierge').scrollIntoView({ behavior:'smooth' }))
+$('close-concierge').addEventListener('click', () => $('concierge').scrollIntoView({ behavior:'smooth' }))
 
-function tryInteract(){
-  if(!state.near) return
-  const t = state.near.type
-  if(t === 'vending'){
-    let best = null, bd = 1e9
-    vendingMachines.forEach(g=>{
-      const d = Math.hypot(player.x - g.position.x, player.z - g.position.z)
-      if(d < bd){ bd = d; best = g }
+window.addEventListener('scroll', () => {
+  const y = scrollY
+  const tourTop = chaptersEl.offsetTop
+  const tourSpan = chaptersEl.offsetHeight - innerHeight
+  const inTour = y >= tourTop - innerHeight * 0.5 && y <= tourTop + tourSpan + innerHeight * 0.4
+  const p = clamp((y - tourTop) / tourSpan, 0, 1)
+
+  if (inTour){
+    state.p = p
+    state.mode = 'tour'
+    $('cue').style.opacity = p > 0.02 ? '0' : '1'
+    $('rail').classList.add('on')
+    $('readout-district').classList.add('on')
+    $('rail-fill').style.height = (p * 100) + '%'
+    const hh = String(Math.floor(state.clock / 60) % 24).padStart(2,'0')
+    const mm = String(Math.floor(state.clock % 60)).padStart(2,'0')
+    $('district-time').textContent = hh + ':' + mm + ' JST'
+    let cur = TOUR[0]
+    TOUR.forEach(c => { if (p >= c.at - 0.001) cur = c })
+    const dn = $('district-name')
+    if (dn.textContent !== cur.district) dn.textContent = cur.district
+    PEOPLE.forEach(q => {
+      const show = p > q.from && p < q.to
+      q.chip.classList.toggle('show', show)
+      if (q.mesh) q.mesh.userData.near = show
     })
-    if(best){
-      spawnCan(best)
-      best.userData.clicks++
-      if(best.userData.secret && best.userData.clicks === 3){
-        toast('IT DISPENSES A NOTE: "THE CITY IS WATCHING"', 4200)
-      }
-      markDiscovery('vending')
-    }
+  } else {
+    $('cue').style.opacity = '0'
+    $('rail').classList.remove('on')
+    $('readout-district').classList.remove('on')
+    PEOPLE.forEach(q => q.chip.classList.remove('show'))
   }
-  else if(t === 'ramen'){
-    $('ramen-menu').classList.add('on')
-    markDiscovery('ramen')
-  }
-  else if(t === 'arcade'){ openArcade() }
-  else if(t === 'claw'){ claw.userData.dropT = 1.4; toast('THE CLAW DROPS... ALMOST') }
-  else if(t === 'cat'){
-    if(!cat.userData.running){
-      cat.userData.running = true
-      cat.userData.speed = 5.5
-      cat.userData.dir = cat.position.x > 0 ? 1 : -1
-      toast('THE STRAY OF GOLDEN GAI')
-    }
-  }
-  else if(t === 'door'){
-    if(!doorPanel.userData.open){ doorPanel.userData.open = true; toast('THE DOOR THAT IS NOT THERE') }
-  }
-  else if(t === 'symbol'){ toast('THE RED SUN MARK — HIDDEN ROOFTOP UNLOCKED') }
-  else if(t === 'shrine'){ markDiscovery('shrine'); toast('THE TINY SHRINE') }
-  else if(t === 'rooftop'){
-    markDiscovery('rooftop')
-    state.roofT = 0.001
-  }
-  else if(t === 'train'){
-    if(state.trainHere){ markDiscovery('train'); toast('YOU CAUGHT THE LAST TRAIN'); if(soundOn) chime() }
-  }
-}
+  $('nav').classList.toggle('solid', y > innerHeight * 0.7)
+}, { passive: true })
 
-function fastTravel(id){
-  const h = HOODS[id]
-  closeMap()
-  $('fade').classList.add('on')
-  setTimeout(()=>{
-    player.x = 0
-    player.z = h.z
-    player.yaw = 0
-    player.pitch = 0
-    $('fade').classList.remove('on')
-    $('map-name').textContent = h.name
-    $('map-vibe').textContent = h.vibe
-    $('map-time').textContent = h.time
-    $('map-desc').textContent = h.desc
-    $('map-dontmiss').textContent = h.dontmiss
-    $('map-go').textContent = 'NAVIGATE →'
-    $('map-panel').classList.add('on')
-  }, 500)
-}
-function openMap(){
-  if(state.mapOpen) return
-  state.mapOpen = true
-  document.body.style.height = '100vh'
-  document.body.style.overflow = 'hidden'
-  $('map-heading').classList.add('on')
-  toast('DRAG TO ROTATE — CLICK A NEIGHBORHOOD')
-}
-function closeMap(){
-  if(!state.mapOpen) return
-  state.mapOpen = false
-  document.body.style.height = ''
-  document.body.style.overflow = ''
-  $('map-panel').classList.remove('on')
-  $('map-heading').classList.remove('on')
-  $('map-tooltip').style.opacity = 0
-}
-document.querySelectorAll('[data-nav]').forEach(b=>{
-  b.addEventListener('click', ()=>{
-    const n = b.dataset.nav
-    if(n==='explore'){ closeMap(); window.scrollTo({ top: 0, behavior: 'smooth' }) }
-    if(n==='map'){ state.mapOpen ? closeMap() : openMap() }
-    if(n==='about'){ $('about').classList.toggle('on') }
+/* ------------------------------- loop ----------------------------- */
+
+const trafficLight = (() => {
+  const g = new THREE.Group()
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 5, 8), new THREE.MeshBasicMaterial({ color: 0x23201c }))
+  pole.position.y = 2.5
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.44, 1.14, 0.3), new THREE.MeshBasicMaterial({ color: 0x14120f }))
+  box.position.y = 5
+  g.add(pole, box)
+  const geo = new THREE.CircleGeometry(0.105, 12)
+  const r = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x8c3a2e }))
+  r.position.set(0, 5.32, 0.16)
+  const yl = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x4a3f22 }))
+  yl.position.set(0, 5.0, 0.16)
+  const gr = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x243a2c }))
+  gr.position.set(0, 4.68, 0.16)
+  g.add(r, yl, gr)
+  g.position.set(-7.9, 0, -45)
+  city.add(g)
+  return { r, y: yl, g: gr }
+})()
+
+people_umbrellas()
+
+function people_umbrellas(){
+  peds.forEach(p => {
+    if (Math.random() < 0.45){
+      const um = new THREE.Mesh(
+        new THREE.ConeGeometry(0.52, 0.3, 10, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0x1a1714, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+      )
+      um.position.y = 1.62
+      p.add(um)
+      p.userData.umbrella = um
+    }
   })
-})
-$('map-close').addEventListener('click', ()=>$('map-panel').classList.remove('on'))
-$('about-close').addEventListener('click', ()=>$('about').classList.remove('on'))
-$('map-go').addEventListener('click', ()=>{ $('map-panel').classList.remove('on') })
-$('new-place').addEventListener('click', ()=>{ $('final').classList.remove('on'); state.finalShown = false; openMap() })
-
-$('again').addEventListener('click', ()=>{ $('final').classList.remove('on'); state.finalShown = false; player.x = 0; player.z = 6; player.yaw = 0; player.pitch = 0 })
-$('another').addEventListener('click', ()=>{
-  $('final').classList.remove('on'); state.finalShown = false
-  state.mode = 'hero'
-  document.body.style.height = '100vh'; document.body.style.overflow = 'hidden'
-  $('hud').classList.remove('on'); $('zone-label').classList.remove('on'); $('hint').classList.remove('on'); $('cross').classList.remove('on')
-  $('hero').classList.remove('off')
-  player.x = 0; player.z = 6; player.yaw = 0; player.pitch = 0
-})
-
-document.addEventListener('mousemove', e=>{
-  if(document.pointerLockElement === document.getElementById('scene')){
-    player.yaw -= e.movementX * 0.0023
-    player.pitch = clamp(player.pitch - e.movementY * 0.0023, -0.5, 0.5)
-  }
-})
-window.addEventListener('keydown', e=>{
-  keys[e.code] = true
-  if(e.code === 'KeyE' || e.code === 'Space'){ e.preventDefault(); tryInteract() }
-  if(e.code === 'KeyM'){ state.mapOpen ? closeMap() : openMap() }
-  if(e.code === 'Escape'){
-    if(arcadeOn) closeArcade()
-    else if(state.mapOpen) closeMap()
-    $('about').classList.remove('on')
-    $('ramen-menu').classList.remove('on')
-  }
-  if(e.code === 'KeyS' && state.mode !== 'hero') $('sound-toggle').click()
-})
-window.addEventListener('keyup', e=>{ keys[e.code] = false })
-
-const tlGroup = new THREE.Group()
-const tlPole = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,5), new THREE.MeshBasicMaterial({color:0x232833}))
-tlPole.position.y = 2.5
-const tlHead = new THREE.Mesh(new THREE.BoxGeometry(0.45, 1.1, 0.3), new THREE.MeshBasicMaterial({ color: 0x0c1018 }))
-tlHead.position.set(0, 5, 0)
-tlGroup.add(tlPole, tlHead)
-const llGeo = new THREE.CircleGeometry(0.11, 12)
-const tlR = new THREE.Mesh(llGeo, new THREE.MeshBasicMaterial({ color: 0xff3b30 }))
-tlR.position.set(0, 5.3, 0.16)
-const tlY = new THREE.Mesh(llGeo, new THREE.MeshBasicMaterial({ color: 0x554400 }))
-tlY.position.set(0, 5.0, 0.16)
-const tlG = new THREE.Mesh(llGeo, new THREE.MeshBasicMaterial({ color: 0x0f3d33 }))
-tlG.position.set(0, 4.7, 0.16)
-tlGroup.add(tlR, tlY, tlG)
-tlGroup.position.set(-7.8, 0, -46)
-city.add(tlGroup)
-
-const toriiMat = new THREE.MeshBasicMaterial({ color: 0xb03a2e })
-const torii = new THREE.Group()
-const pil1 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.2, 0.18), toriiMat); pil1.position.set(-0.8, 1.1, 0)
-const pil2 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.2, 0.18), toriiMat); pil2.position.set(0.8, 1.1, 0)
-const top = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.22, 0.26), toriiMat); top.position.set(0, 2.25, 0)
-const top2 = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 0.22), toriiMat); top2.position.set(0, 1.85, 0)
-torii.add(pil1, pil2, top, top2)
-torii.position.set(-2.9, 0, -77)
-city.add(torii)
-
-const gateMat = new THREE.MeshBasicMaterial({ color: 0x101623 })
-const gate = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.6, 0.5), gateMat)
-gate.position.set(0, 1.8, -104)
-city.add(gate)
-const gateGlow = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 3.2), new THREE.MeshBasicMaterial({ color: 0x001416 }))
-gateGlow.position.set(0, 1.6, -103.7)
-city.add(gateGlow)
-addSign('ROOFTOP', '#00d4c8', 0, 3.4, -103.5, 1.2)
-
-peds.forEach(p=>{
-  if(Math.random() < 0.5){
-    const um = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.35, 8), new THREE.MeshBasicMaterial({ color: 0x1a2030 }))
-    um.position.y = 1.55
-    p.add(um)
-  }
-})
+}
 
 let miniRedraw = 0
 let lastFrame = performance.now()
+
 function loop(now){
   requestAnimationFrame(loop)
-  const dt = Math.min((now - lastFrame)/1000, 0.05)
+  const dt = Math.min((now - lastFrame) / 1000, 0.05)
   lastFrame = now
-  const t = now/1000
+  const t = now / 1000
 
-  const k = 1 - Math.pow(0.001, dt)
-  vibe.rain = lerp(vibe.rain, vibeTarget.rain, k)
-  vibe.traffic = lerp(vibe.traffic, vibeTarget.traffic, k)
-  vibe.fog = lerp(vibe.fog, vibeTarget.fog, k)
-  vibe.signSpeed = lerp(vibe.signSpeed, vibeTarget.signSpeed, k)
-  vibe.bloom = lerp(vibe.bloom, vibeTarget.bloom, k)
-  vibe.crowd = lerp(vibe.crowd, vibeTarget.crowd, k)
-  vibe.sway = lerp(vibe.sway, vibeTarget.sway, k)
-  vibe.steam = lerp(vibe.steam, vibeTarget.steam, k)
-  scene.fog.density = vibe.fog
-  if(!IS_TOUCH) bloom.strength = vibe.bloom
-  gradePass.uniforms.time.value = t
+  state.clock += dt / 6
+  if (state.clock >= 24 * 60) state.clock -= 24 * 60
 
-  if(state.mode === 'hero'){
-    const push = REDUCED ? 0 : smooth(clamp(t/30, 0, 1)) * 2
-    camPos.set(pointer.x*1.6, 2.3+pointer.y*0.7, 12 - push)
-    camLook.set(pointer.x*2, 2.2, -20)
+  if (state.mode === 'tour'){
+    camAt(state.p)
     camera.position.copy(camPos)
     camera.lookAt(camLook)
-    currentLook.copy(camLook)
-    $('hero-title').style.transform = 'translate(' + (-pointer.x*16) + 'px,' + (-pointer.y*10) + 'px)'
-  }
-  else if(state.mode === 'street'){
-    let ix = 0, iz = 0
-    if(keys['KeyW'] || keys['ArrowUp']) iz -= 1
-    if(keys['KeyS'] || keys['ArrowDown']) iz += 1
-    if(keys['KeyA'] || keys['ArrowLeft']) ix -= 1
-    if(keys['KeyD'] || keys['ArrowRight']) ix += 1
-    if(joy.active){ ix += joy.x; iz += joy.y }
-    let inF = -iz, inS = ix
-    const F = { x:-Math.sin(player.yaw), z:-Math.cos(player.yaw) }
-    const R = { x: Math.cos(player.yaw), z:-Math.sin(player.yaw) }
-    let vx = F.x*inF + R.x*inS
-    let vz = F.z*inF + R.z*inS
-    const L = Math.hypot(vx, vz)
-    if(L > 0){ vx/=L; vz/=L }
-    const maxSpeed = state.roofT > 0 || trans ? 0 : 5.2
-    const k2 = 1 - Math.pow(0.001, dt)
-    player.vx = lerp(player.vx, vx*maxSpeed, k2)
-    player.vz = lerp(player.vz, vz*maxSpeed, k2)
-    player.x = clamp(player.x + player.vx*dt, -7.5, 7.5)
-    player.z = clamp(player.z + player.vz*dt, -108, 8)
-    player.bob += Math.hypot(player.vx, player.vz) * dt * 1.7
-
-    const eyeY = 1.7 + (REDUCED ? 0 : Math.sin(player.bob)*0.05)
-    const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw), cp = Math.cos(player.pitch)
-    camPos.set(player.x, eyeY, player.z)
-    camLook.set(player.x - sy*cp*10, eyeY + Math.sin(player.pitch)*10, player.z - cy*cp*10)
-
-    if(state.roofT > 0){
-      state.roofT += dt
-      let f
-      if(state.roofT < 1) f = smooth(clamp(state.roofT, 0, 1))
-      else if(state.roofT < 3.5) f = 1
-      else if(state.roofT < 4.5) f = 1 - smooth(clamp(state.roofT - 3.5, 0, 1))
-      else { state.roofT = 0; f = 0 }
-      if(state.roofT > 0){
-        camPos.lerpVectors(new THREE.Vector3(player.x, eyeY, player.z), new THREE.Vector3(0, 26, -92), f)
-        camLook.lerpVectors(new THREE.Vector3(player.x - sy*cp*10, eyeY + Math.sin(player.pitch)*10, player.z - cy*cp*10), new THREE.Vector3(0, 6, -180), f)
-      }
-      camera.fov = lerp(camera.fov, 70, 0.05); camera.updateProjectionMatrix()
-    } else {
-      camera.fov = lerp(camera.fov, 50, 0.08); camera.updateProjectionMatrix()
-    }
-
-    state.gameClock += dt / 5
-    if(state.gameClock >= 1440) state.gameClock -= 1440
-    const hh = String(Math.floor(state.gameClock/60)%24).padStart(2,'0')
-    const mm = String(Math.floor(state.gameClock%60)).padStart(2,'0')
-    $('hud-time').textContent = 'TOKYO / ' + hh + ':' + mm
-
-    const zone = player.z > -26 ? 'SHINJUKU STATION' : player.z > -44 ? 'AVENUE' : player.z > -60 ? 'SHIBUYA' : player.z > -84 ? 'BACK ALLEY' : player.z > -104 ? 'AKIHABARA' : 'SKYWARD'
-    if(zone !== state.zone){ state.zone = zone; const zl = $('zone-label'); zl.textContent = zone; zl.classList.add('on') }
-
-    let nearest = null, nd = 2.6
-    for(const it of INTERACTS){
-      const d = Math.hypot(player.x - it.x, player.z - it.z)
-      if(d < (it.r || 2.6) && d < nd){ nd = d; nearest = it }
-    }
-    if(nearest){
-      hintEl.textContent = (IS_TOUCH ? 'TAP E — ' : 'E — ') + nearest.label
-    } else {
-      hintEl.textContent = IS_TOUCH ? 'DRAG RIGHT SIDE TO LOOK · JOYSTICK TO WALK' : 'WASD MOVE · E INTERACT · M MAP'
-    }
-    state.near = nearest
-
-    state.trafficT += dt
-    const ph = state.trafficT % 13
-    state.light = ph < 7 ? 'green' : ph < 8.5 ? 'yellow' : 'red'
-    tlR.material.color.setHex(state.light === 'red' ? 0xff3b30 : 0x3a1512)
-    tlY.material.color.setHex(state.light === 'yellow' ? 0xffd60a : 0x3a330f)
-    tlG.material.color.setHex(state.light === 'green' ? 0x30d158 : 0x0f3d24)
-
-    const cyc = t % 26
-    if(cyc < 3){ train.position.set(-14, 0, lerp(-70, -14, easeOut(cyc/3))) }
-    else if(cyc < 10){ train.position.set(-14, 0, -14) }
-    else if(cyc < 13){ train.position.set(-14, 0, lerp(-14, -90, (cyc-10)/3)) }
-    else { train.position.set(-14, 0, -999) }
-    state.trainHere = cyc >= 2.5 && cyc < 10
-    trainHit.position.copy(train.position); trainHit.position.y = 1.6
-    trainWinMat.opacity = lerp(trainWinMat.opacity, state.trainHere ? 0.95 : 0.35, 0.06)
-
-    const spd = Math.hypot(player.vx, player.vz)
-    streakMat.opacity = state.roofT > 0 ? 0.2 : clamp(spd/5.2, 0, 1) * 0.18
-    if(streakMat.opacity > 0.01){
-      for(let i=0;i<streakCount;i++){
-        streakPos[i*3+2] += streakSeed[i] * dt * (0.5 + spd*0.3)
-        if(streakPos[i*3+2] > 6) streakPos[i*3+2] = -40
-      }
-      streakGeo.attributes.position.needsUpdate = true
-    }
-    state.roofF = state.roofT > 0 ? (state.roofT < 1 ? state.roofT : state.roofT < 3.5 ? 1 : Math.max(0, 1-(state.roofT-3.5))) : 0
   }
 
-  if(trans){
-    trans.t = Math.min(1, trans.t + dt/1.6)
-    const tt = smooth(trans.t)
-    camPos.lerpVectors(trans.fromPos, camPos, tt)
-    camLook.lerpVectors(trans.fromLook, camLook, tt)
-    if(trans.t >= 1) trans = null
-  }
+  gradePass.uniforms.time.value = t
+  scene.fog.density = 0.008 + (state.p > 0.72 ? 0.006 : 0)
 
-  camera.position.copy(camPos)
-  camera.lookAt(camLook)
-  currentLook.copy(camLook)
-
-  if(arcadeOn) drawArcade(dt)
-
-  rainMat.opacity = 0.35 * vibe.rain * (1 - state.roofF)
-  if(!REDUCED){
-    const sp = 20 + vibe.rain*8
+  /* city life */
+  if (!REDUCED){
+    const sp = 21
     const rp = rainGeo.attributes.position
-    for(let i=0;i<rainCount;i++){
-      let y = rp.getY(i) - sp*dt
-      if(y < 0) y += 26
+    for (let i = 0; i < rainCount; i++){
+      let y = rp.getY(i) - sp * dt
+      if (y < 0) y += 26
       rp.setY(i, y)
     }
     rp.needsUpdate = true
   }
-  rain.rotation.z = pointer.x * 0.05
+  rain.rotation.z = 0.03
 
-  cars.forEach(c=>{
+  state.trafficT += dt
+  const ph = state.trafficT % 13
+  state.light = ph < 7 ? 'green' : ph < 8.5 ? 'yellow' : 'red'
+  trafficLight.r.material.color.setHex(state.light === 'red' ? 0xc04a3c : 0x3d1a16)
+  trafficLight.y.material.color.setHex(state.light === 'yellow' ? 0xd8b04a : 0x453a1e)
+  trafficLight.g.material.color.setHex(state.light === 'green' ? 0x4a8a63 : 0x1e3226)
+
+  cars.forEach(c => {
     const u = c.userData
-    let nz = c.position.z + u.dir * u.speed * vibe.traffic * dt
-    if(state.light !== 'green'){
-      if(u.dir < 0 && c.position.z > -44 && nz <= -44) nz = -44
-      if(u.dir > 0 && c.position.z < -56 && nz >= -56) nz = -56
+    let nz = c.position.z + u.dir * u.speed * 0.55 * dt
+    if (state.light !== 'green'){
+      if (u.dir < 0 && c.position.z > -44 && nz <= -44) nz = -44
+      if (u.dir > 0 && c.position.z < -56 && nz >= -56) nz = -56
     }
-    if(nz < -120) nz = 10
-    if(nz > 10) nz = -120
+    if (nz < -124) nz = 12
+    if (nz > 12) nz = -124
     c.position.z = nz
   })
 
-  peds.forEach(p=>{
+  peds.forEach(p => {
     const u = p.userData
-    p.position.x += u.dir * u.speed * vibe.crowd * dt
-    if(p.position.x > u.zone.x[1]) { p.position.x = u.zone.x[1]; u.dir = -1 }
-    if(p.position.x < u.zone.x[0]) { p.position.x = u.zone.x[0]; u.dir = 1 }
-    p.rotation.y = u.dir > 0 ? Math.PI/2 : -Math.PI/2
-    p.position.y = Math.abs(Math.sin((t + u.bob)*6)) * 0.04
-    if(u.lookT > 0){
-      u.lookT -= dt
-      u.head.lookAt(camera.position)
-    }
+    const pace = (u.zone.x && Math.abs(p.position.z + 50) < 12) ? (state.light === 'red' ? 0.75 : 0.25) : 1
+    p.position.x += u.dir * u.speed * 0.5 * pace * dt
+    if (p.position.x > u.zone.x[1]) { p.position.x = u.zone.x[1]; u.dir = -1 }
+    if (p.position.x < u.zone.x[0]) { p.position.x = u.zone.x[0]; u.dir = 1 }
+    p.rotation.y = u.dir > 0 ? Math.PI / 2 : -Math.PI / 2
+    if (!REDUCED) p.position.y = Math.abs(Math.sin((t + u.bob) * 5)) * 0.03
+    if (u.umbrella) u.umbrella.rotation.z = Math.sin(t * 1.4 + u.bob) * 0.03
   })
 
-  signs.forEach((s, i)=>{
-    if(s.userData.flickerT > 0){
-      s.userData.flickerT -= dt
-      s.material.opacity = Math.random() < 0.4 ? 0.15 : s.userData.baseOpacity
+  PEOPLE.forEach(q => {
+    if (!q.mesh) return
+    const u = q.mesh.userData
+    if (!REDUCED){
+      u.sway += dt
+      u.head.position.y = 1.76 + Math.sin(u.sway * 0.8) * 0.008
+      u.ring.material.opacity = u.near ? 0.4 + Math.sin(t * 1.6) * 0.08 : 0.16
     } else {
-      s.material.opacity = lerp(s.material.opacity, s.userData.baseOpacity, 0.1)
+      u.ring.material.opacity = u.near ? 0.34 : 0.16
     }
-    const target = new THREE.Color(vibeTarget.color)
-    s.userData.baseColor.lerp(target, 0.02)
-    s.material.color.copy(s.userData.baseColor)
   })
 
-  lanterns.forEach(l=>{
-    l.material.opacity = 0.8 + Math.sin(t*11 + l.userData.phase)*0.2
+  signs.forEach(s => {
+    if (s.userData.flickerT > 0){
+      s.userData.flickerT -= dt
+      s.material.opacity = Math.random() < 0.25 ? 0.3 : s.userData.baseOpacity
+    } else {
+      s.material.opacity = lerp(s.material.opacity, s.userData.baseOpacity, 0.08)
+    }
   })
 
-  vendingMachines.forEach(g=>{
+  lanterns.forEach(l => { l.material.opacity = 0.78 + Math.sin(t * 7 + l.userData.phase) * 0.12 })
+
+  vendingMachines.forEach(g => {
     const u = g.userData
-    const isHov = state.near && state.near.type === 'vending' && Math.hypot(player.x - g.position.x, player.z - g.position.z) < 3
-    u.lit = lerp(u.lit, isHov ? 1 : 0, 0.15)
-    u.front.material.color.setScalar(1 + u.lit * 0.6)
+    u.lit = lerp(u.lit, 0.55, 0.04)
+    u.front.material.color.setScalar(1 + u.lit * 0.22)
   })
 
-  ripples.forEach(r=>{
-    if(r.visible){
-      r.userData.life -= dt*1.4
-      r.scale.setScalar(1 + (1-r.userData.life)*4)
-      r.material.opacity = r.userData.life * 0.7
-      if(r.userData.life <= 0) r.visible = false
-    }
+  ripples.forEach(r => {
+    if (!r.visible) return
+    r.userData.life -= dt * 1.4
+    r.scale.setScalar(1 + (1 - r.userData.life) * 4)
+    r.material.opacity = r.userData.life * 0.5
+    if (r.userData.life <= 0) r.visible = false
   })
 
-  cans.forEach((c, i)=>{
-    c.userData.vy -= 9.8*dt
-    c.position.y += c.userData.vy*dt
-    c.rotation.x += dt*6
-    if(c.position.y < 0.07){ c.position.y = 0.07; c.userData.vy *= -0.35 }
+  cans.forEach((c, i) => {
+    c.userData.vy -= 9.8 * dt
+    c.position.y += c.userData.vy * dt
+    c.rotation.x += dt * 6
+    if (c.position.y < 0.07){ c.position.y = 0.07; c.userData.vy *= -0.35 }
     c.userData.life -= dt
-    if(c.userData.life < 1) c.material.opacity = c.userData.life
-    if(c.userData.life <= 0){ city.remove(c); c.geometry.dispose(); c.material.dispose(); cans.splice(i,1) }
+    c.material.transparent = true
+    c.material.opacity = clamp(c.userData.life, 0, 1)
+    if (c.userData.life <= 0){ city.remove(c); c.geometry.dispose(); c.material.dispose(); cans.splice(i,1) }
   })
 
-  if(cat.userData.running){
-    cat.position.x += cat.userData.dir * cat.userData.speed * dt
-    cat.rotation.y = cat.userData.dir > 0 ? Math.PI/2 : -Math.PI/2
-    tail.rotation.z = Math.sin(t*22)*0.6
-    catHit.position.copy(cat.position); catHit.position.y = 0.3
-    if(Math.abs(cat.position.x) > 7){ cat.visible = false; catHit.visible = false }
+  if (!cat.userData.running){
+    cat.rotation.y = Math.sin(t * 0.35) * 0.6
   } else {
-    tail.rotation.z = 0.4 + Math.sin(t*2)*0.15
+    cat.position.x += cat.userData.dir * cat.userData.speed * dt
+    tail.rotation.z = Math.sin(t * 22) * 0.6
+    if (Math.abs(cat.position.x) > 7){ cat.visible = false; catHit.visible = false }
   }
 
-  const door = doorPanel.userData
-  if(door.open){
-    door.openT = Math.min(1, door.openT + dt*0.5)
-    doorPanel.position.z = -72.5 + door.openT * 0.9
-    doorGlow.material.opacity = door.openT * 0.85
-  }
+  symbol.material.opacity = 0.62 + Math.sin(t * 1.6) * 0.16
 
-  symbol.material.opacity = 0.75 + Math.sin(t*2.4)*0.25
-  symbol.rotation.z = Math.sin(t*0.8)*0.1
-
-  const bowlHover = state.near && state.near.type === 'ramen'
-  steamMat.opacity = 0.12 + vibe.steam * 0.18 + (bowlHover ? 0.3 : 0)
   const sp2 = steamGeo.attributes.position
-  for(let i=0;i<steamCount;i++){
-    let y = sp2.getY(i) + dt * (0.35 + vibe.steam*0.25)
-    sp2.setX(i, sp2.getX(i) + Math.sin(t*2 + steamSeed[i]) * dt * 0.15)
-    if(y > 2.9){ y = 1.3; sp2.setX(i, 2.2 + (Math.random()-0.5)*0.6); sp2.setZ(i, -68 + (Math.random()-0.5)*0.6) }
+  for (let i = 0; i < steamCount; i++){
+    let y = sp2.getY(i) + dt * 0.4
+    sp2.setX(i, sp2.getX(i) + Math.sin(t * 1.6 + steamSeed[i]) * dt * 0.12)
+    if (y > 3.1){ y = 1.3; sp2.setX(i, 2.2 + (Math.random()-0.5)*0.6); sp2.setZ(i, -68 + (Math.random()-0.5)*0.6) }
     sp2.setY(i, y)
   }
   sp2.needsUpdate = true
+  steamMat.opacity = 0.16 + Math.sin(t * 0.7) * 0.03
 
   miniRedraw -= dt
-  if(miniRedraw <= 0){
-    miniRedraw = 0.12
+  if (miniRedraw <= 0){
+    miniRedraw = 0.2
     const ctx = miniTex.ctx
-    ctx.fillStyle = '#0a0d15'; ctx.fillRect(0,0,128,128)
-    ctx.fillStyle = '#1a2233'
-    ctx.fillRect(0, 60, 128, 8)
-    const cols = ['#ff5a36','#00d4c8','#ffe95a','#ff2e88']
-    for(let i=0;i<6;i++){
-      ctx.fillStyle = cols[i%4]
-      const x = ((t*30 + i*47) % 160) - 16
-      ctx.fillRect(x, 52 + (i%3)*8, 8, 4)
+    ctx.fillStyle = '#0d0f14'; ctx.fillRect(0,0,128,128)
+    ctx.fillStyle = '#1b1e26'
+    ctx.fillRect(0, 60, 128, 7)
+    const cols = ['#c9a961','#8c3a2e','#6f7f6a','#a8894f']
+    for (let i = 0; i < 6; i++){
+      ctx.fillStyle = cols[i % 4]
+      ctx.fillRect(((t * 26 + i * 47) % 150) - 12, 52 + (i % 3) * 8, 7, 4)
     }
-    ctx.fillStyle = '#ffd9a0'
-    for(let i=0;i<10;i++){ ctx.fillRect((i*13 + 7) % 128, 20 + (i*29)%40, 3, 3) }
+    ctx.fillStyle = '#e8d9b0'
+    for (let i = 0; i < 10; i++) ctx.fillRect((i * 13 + 7) % 128, 20 + (i * 29) % 40, 3, 3)
     miniTex.tex.needsUpdate = true
   }
 
   const clawU = claw.userData
-  if(clawU.dropT > 0){
+  if (clawU.dropT > 0){
     clawU.dropT -= dt
     const ph2 = 1.4 - clawU.dropT
-    const armY = ph2 < 0.5 ? 1.6 - ph2*1.6 : 0.8 + (ph2-0.5)*1.6
+    const armY = ph2 < 0.5 ? 1.6 - ph2 * 1.6 : 0.8 + (ph2 - 0.5) * 1.6
     clawArm.position.y = armY
     clawHand.position.y = armY - 0.45
-    if(clawU.dropT <= 0){ clawArm.position.y = 1.6; clawHand.position.y = 1.15 }
+    if (clawU.dropT <= 0){ clawArm.position.y = 1.6; clawHand.position.y = 1.15 }
   }
 
-  mapMarkers.forEach(m=>{
-    if(m.userData.type !== 'hood') return
-    const target = m.userData.hover ? 1.5 : 1
-    m.scale.setScalar(lerp(m.scale.x, target, 0.15))
-    m.position.y = 0.15 + (m.userData.hover ? 0.35 : 0)
-  })
-
-  cursorPos.x = lerp(cursorPos.x, cursorTarget.x, 0.22)
-  cursorPos.y = lerp(cursorPos.y, cursorTarget.y, 0.22)
-  cursorEl.style.transform = 'translate(' + (cursorPos.x - cursorEl.offsetWidth/2) + 'px,' + (cursorPos.y - cursorEl.offsetHeight/2) + 'px)'
-
-  const magR = enterBtn.getBoundingClientRect()
-  const magCX = magR.left + magR.width/2, magCY = magR.top + magR.height/2
-  const dMag = Math.hypot(cursorTarget.x - magCX, cursorTarget.y - magCY)
-  if(dMag < 150 && state.mode === 'hero'){
-    magX = (cursorTarget.x - magCX) * 0.3
-    magY = (cursorTarget.y - magCY) * 0.3
-  } else {
-    magX = lerp(magX, 0, 0.1); magY = lerp(magY, 0, 0.1)
-  }
-  enterBtn.style.transform = 'translate(' + magX + 'px,' + magY + 'px)'
-
-  if(state.mapOpen){
-    mapGroup.rotation.x = -0.42 + Math.sin(t*0.3)*0.01
-    mapCamera.lookAt(0, 0, 0)
-    renderer.render(mapScene, mapCamera)
-  } else {
-    composer.render()
-  }
+  composer.render()
 }
+
 requestAnimationFrame(loop)
 
-window.addEventListener('pointermove', ()=>{ if(soundOn && audioCtx && audioCtx.state === 'suspended') audioCtx.resume() })
-setTimeout(()=>document.body.classList.add('ready'), 100)
-setTimeout(()=>{ if(state.mode === 'hero') toast('MOVE YOUR CURSOR — THE CITY IS WATCHING', 4200) }, 2200)
+/* ---------------------------- resize ------------------------------ */
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight
+  camera.updateProjectionMatrix()
+  renderer.setSize(innerWidth, innerHeight)
+  composer.setSize(innerWidth, innerHeight)
+  if (map) map.resize()
+})
+
+if (REDUCED) document.body.classList.add('reduced')
+setTimeout(() => document.body.classList.add('ready'), 120)
