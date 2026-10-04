@@ -180,7 +180,7 @@ export function createAtmosphere(ctx){
   const moon = new THREE.Sprite(new THREE.SpriteMaterial({
     map: moonTexture(), transparent: true, opacity: 0, depthWrite: false
   }))
-  moon.position.set(52, 46, -96)
+  moon.position.set(70, 80, -260)
   moon.scale.setScalar(9)
   scene.add(moon)
 
@@ -237,6 +237,43 @@ export function createAtmosphere(ctx){
   scene.add(sun)
   const amb = new THREE.HemisphereLight(0xbfd4e8, 0x1a1714, 0.3)
   scene.add(amb)
+
+  /* Sky dome: a gradient, not a flat rectangle. Top color comes from
+     the derived background, horizon from the fog, so all twelve
+     time×weather states get their own sky automatically. */
+  const skyUni = {
+    top: { value: new THREE.Color(0x608ab2) },
+    horizon: { value: new THREE.Color(0x7094b8) }
+  }
+  const skyDome = new THREE.Mesh(
+    new THREE.SphereGeometry(420, 24, 16),
+    new THREE.ShaderMaterial({
+      uniforms: skyUni,
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+      fragmentShader: [
+        'varying vec3 vP; uniform vec3 top; uniform vec3 horizon;',
+        'void main(){',
+        ' float h = normalize(vP).y;',
+        ' vec3 col = mix(horizon, top, smoothstep(0.02, 0.55, h));',
+        ' col = mix(vec3(0.03,0.03,0.04), col, smoothstep(-0.08, 0.02, h));',
+        ' gl_FragColor = vec4(col, 1.0);',
+        '}'
+      ].join('\n')
+    })
+  )
+  skyDome.frustumCulled = false
+  skyDome.renderOrder = -10
+  scene.add(skyDome)
+
+  /* Visible sun disc: modest, physically placed, not a pasted circle.
+     Day sits high; sunset drops near the horizon and warms. */
+  const sunSpr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: sunTexture(), transparent: true, opacity: 0, depthWrite: false, fog: false
+  }))
+  scene.add(sunSpr)
 
   const bgCol = new THREE.Color()
   const fogCol = new THREE.Color()
@@ -330,6 +367,27 @@ export function createAtmosphere(ctx){
     moon.material.opacity = cur.moon * 0.8
     moon.visible = cur.moon > 0.02
 
+    /* sky gradient follows the derived state */
+    skyUni.top.value.setRGB(cur.bg[0]/255, cur.bg[1]/255, cur.bg[2]/255)
+    skyUni.horizon.value.setRGB(cur.fog[0]/255, cur.fog[1]/255, cur.fog[2]/255)
+    /* sun disc: day high, sunset low and warm, gone at night */
+    if (time === 'night'){
+      sunSpr.material.opacity = 0
+      sunSpr.visible = false
+    } else if (time === 'sunset'){
+      sunSpr.visible = true
+      sunSpr.position.set(-110, 26, -260)
+      sunSpr.scale.setScalar(30)
+      sunSpr.material.color.setRGB(1.0, 0.72, 0.48)
+      sunSpr.material.opacity = (weather === 'rain' ? 0.12 : weather === 'snow' ? 0.2 : 0.95)
+    } else {
+      sunSpr.visible = true
+      sunSpr.position.set(-70, 170, -220)
+      sunSpr.scale.setScalar(24)
+      sunSpr.material.color.setRGB(1.0, 0.97, 0.92)
+      sunSpr.material.opacity = (weather === 'rain' ? 0.12 : weather === 'snow' ? 0.22 : 0.9)
+    }
+
     /* snow */
     snowMat.opacity = cur.snow * 0.72
     snow.visible = cur.snow > 0.02
@@ -419,6 +477,20 @@ function moonTexture(){
   g.addColorStop(0.45, 'rgba(246,238,220,0.8)')
   g.addColorStop(0.72, 'rgba(220,210,190,0.2)')
   g.addColorStop(1, 'rgba(200,190,170,0)')
+  x.fillStyle = g
+  x.beginPath(); x.arc(64, 64, 62, 0, Math.PI * 2); x.fill()
+  return new THREE.CanvasTexture(c)
+}
+
+function sunTexture(){
+  const c = document.createElement('canvas')
+  c.width = c.height = 128
+  const x = c.getContext('2d')
+  const g = x.createRadialGradient(64, 64, 2, 64, 64, 62)
+  g.addColorStop(0, 'rgba(255,252,244,1)')
+  g.addColorStop(0.25, 'rgba(255,244,220,0.9)')
+  g.addColorStop(0.5, 'rgba(255,230,190,0.25)')
+  g.addColorStop(1, 'rgba(255,220,180,0)')
   x.fillStyle = g
   x.beginPath(); x.arc(64, 64, 62, 0, Math.PI * 2); x.fill()
   return new THREE.CanvasTexture(c)
