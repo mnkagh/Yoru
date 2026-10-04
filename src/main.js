@@ -1977,6 +1977,39 @@ function initAudio(){
   sub.connect(sg); sg.connect(masterGain)
   sub.start()
 }
+function blip(){
+  if (!audioCtx || !soundOn) return
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain()
+  o.type = 'sine'; o.frequency.value = 620
+  g.gain.setValueAtTime(0.06, audioCtx.currentTime)
+  g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.12)
+  o.connect(g); g.connect(masterGain)
+  o.start(); o.stop(audioCtx.currentTime + 0.13)
+}
+function drip(){
+  if (!audioCtx || !soundOn) return
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain()
+  o.type = 'sine'
+  o.frequency.setValueAtTime(900, audioCtx.currentTime)
+  o.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.2)
+  g.gain.setValueAtTime(0.08, audioCtx.currentTime)
+  g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.25)
+  o.connect(g); g.connect(masterGain)
+  o.start(); o.stop(audioCtx.currentTime + 0.26)
+}
+function chime(){
+  if (!audioCtx || !soundOn) return
+  ;[880, 659].forEach((f, i) => {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain()
+    o.type = 'sine'; o.frequency.value = f
+    const t0 = audioCtx.currentTime + i * 0.18
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(0.05, t0 + 0.03)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5)
+    o.connect(g); g.connect(masterGain)
+    o.start(t0); o.stop(t0 + 0.55)
+  })
+}
 $('sound-toggle').addEventListener('click', () => {
   initAudio()
   if (!audioCtx) return
