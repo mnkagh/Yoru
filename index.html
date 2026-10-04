@@ -360,6 +360,14 @@ body.dlg-typing .dlg-type{display:flex}
   #atmos{top:auto;bottom:14px;right:12px}
   #atmos-panel{width:min(268px,calc(100vw - 24px))}
   .loc-figure-frame{aspect-ratio:4/3}
+  /* close buttons must be genuinely tappable, not 24px crosses */
+  .dlg-close{width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:24px;flex:0 0 auto}
+  .dlg-head{padding-top:16px}
+  .guide-chip{padding:16px 20px}
+  .dlg-opt{min-height:48px;display:flex;align-items:center}
+  .dlg-tools button,.dlg-send{min-height:44px;padding:12px 16px}
+  .dlg-type input{min-height:44px}
+  #loc-add,#loc-save,#loc-atlas,#loc-map,#loc-official,#loc-find,#disc-add,#disc-atlas{min-height:46px;display:inline-flex;align-items:center}
 }
 </style>
 </head>
@@ -398,13 +406,20 @@ body.dlg-typing .dlg-type{display:flex}
   </button>
   <div id="atmos-panel" hidden>
     <div class="atmos-group">
-      <span class="atmos-key mono">Mode</span>
-      <div class="atmos-opts" id="atmos-opts" role="group" aria-label="Atmosphere mode">
-        <button type="button" data-a="day">Day</button>
-        <button type="button" data-a="spring">Spring</button>
-        <button type="button" data-a="snow">Snow</button>
-        <button type="button" data-a="sunset">Sunset</button>
-        <button type="button" data-a="night" class="on">Night</button>
+      <span class="atmos-key mono">Time of day</span>
+      <div class="atmos-opts" id="atmos-times" role="group" aria-label="Time of day">
+        <button type="button" data-t="day">Day</button>
+        <button type="button" data-t="sunset">Sunset</button>
+        <button type="button" data-t="night" class="on">Night</button>
+      </div>
+    </div>
+    <div class="atmos-group">
+      <span class="atmos-key mono">Weather</span>
+      <div class="atmos-opts" id="atmos-weathers" role="group" aria-label="Weather">
+        <button type="button" data-w="sunny" class="on">Clear</button>
+        <button type="button" data-w="rain">Rain</button>
+        <button type="button" data-w="snow">Snow</button>
+        <button type="button" data-w="spring">Sakura</button>
       </div>
     </div>
     <div class="atmos-group">
@@ -417,7 +432,7 @@ body.dlg-typing .dlg-type{display:flex}
         <button type="button" data-t="m60">60 min</button>
       </div>
     </div>
-    <p class="atmos-foot mono" id="atmos-foot">You choose the time of day.</p>
+    <p class="atmos-foot mono" id="atmos-foot">You choose the time of day and the weather.</p>
   </div>
 </div>
 

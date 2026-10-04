@@ -28,7 +28,9 @@ const argsFor = extra => {
 }
 
 function run(scenario, extra = []){
-  const url = `${BASE}/tests/index.html?s=${scenario}`
+  /* the mobile scenario runs inside a phone-sized viewport */
+  const vp = scenario === 'mobile' ? '&vp=390x844' : ''
+  const url = `${BASE}/tests/index.html?s=${scenario}${vp}`
   let dom = ''
   try {
     dom = execFileSync(EDGE, argsFor(extra).concat([url]), {
@@ -46,7 +48,7 @@ function run(scenario, extra = []){
 }
 
 const only = process.argv[2]
-const SCEN = ['reducedCamera', 'shrine', 'chef', 'atmosphereMatrix', 'transitions', 'districts', 'regression']
+const SCEN = ['reducedCamera', 'shrine', 'chef', 'atmosphereMatrix', 'transitions', 'districts', 'mobile', 'regression']
 const list = only ? [only] : SCEN
 
 let all = []

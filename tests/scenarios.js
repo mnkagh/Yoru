@@ -194,6 +194,7 @@ SCENARIOS.atmosphereMatrix = async ({ Y, $, rec, sleep }) => {
   rec('weather is its own axis', ['sunny','rain','snow','spring'].every(k => a.weathers().includes(k)), a.weathers().join(','))
 
   const step = n => { for (let i = 0; i < n; i++) a.update(0.1, i * 0.1) }
+  const rgb = c => Array.isArray(c) ? c.join('.') : String(c)
   const combos = []
   for (const time of a.times()){
     for (const weather of a.weathers()){
@@ -202,17 +203,18 @@ SCENARIOS.atmosphereMatrix = async ({ Y, $, rec, sleep }) => {
       const c = a.state.cur
       combos.push({
         time, weather,
-        bg: Math.round(c.bg), exp: +c.exposure.toFixed(2), light: +c.light.toFixed(2),
-        fog: +c.fogDensity.toFixed(4), snow: +c.snow.toFixed(2), petal: +c.petal.toFixed(2),
+        bg: rgb(c.bg), exp: +c.exposure.toFixed(3), light: +c.light.toFixed(3),
+        fog: +c.fogDensity.toFixed(5), snow: +c.snow.toFixed(2), petal: +c.petal.toFixed(2),
         rain: +c.rain.toFixed(2), wet: +c.wet.toFixed(2), stars: +c.stars.toFixed(2),
-        moon: +c.moon.toFixed(2), signs: +c.signs.toFixed(2), windows: +c.windows.toFixed(2),
-        ped: +c.pedDensity.toFixed(2)
+        moon: +c.moon.toFixed(2), signs: +c.signs.toFixed(3), windows: +c.windows.toFixed(3),
+        ped: +c.pedDensity.toFixed(3), amb: +c.amb.toFixed(3)
       })
     }
   }
   rec('all 12 combinations resolve', combos.length === 12, combos.length + ' states')
 
-  const key = c => [c.bg, c.exp, c.light, c.fog, c.snow, c.petal, c.rain, c.wet, c.stars, c.moon, c.signs, c.windows, c.ped].join('|')
+  const key = c => [c.bg, c.exp, c.light, c.fog, c.amb, c.snow, c.petal, c.rain, c.wet,
+                    c.stars, c.moon, c.signs, c.windows, c.ped].join('|')
   const uniq = new Set(combos.map(key))
   rec('every combination is visually distinct', uniq.size === 12, uniq.size + '/12 unique')
 
@@ -221,27 +223,48 @@ SCENARIOS.atmosphereMatrix = async ({ Y, $, rec, sleep }) => {
   for (const c of combos){ if (c.weather === 'sunny') byTime[c.time] = c }
   rec('DAY/SUNSET/NIGHT differ under clear weather',
       new Set(Object.values(byTime).map(key)).size === 3,
-      Object.values(byTime).map(c => c.time + ':' + c.bg + '/' + c.exp).join('  '))
+      Object.values(byTime).map(c => c.time + ' bg' + c.bg + ' exp' + c.exp + ' light' + c.light).join('  '))
 
   // weather axis must matter even with time held constant
   const byW = {}
   for (const c of combos){ if (c.time === 'night') byW[c.weather] = c }
   rec('SUNNY/RAIN/SNOW/SPRING differ at night',
       new Set(Object.values(byW).map(key)).size === 4,
-      Object.values(byW).map(c => c.weather + ':rain' + c.rain + '/wet' + c.wet).join('  '))
+      Object.values(byW).map(c => c.weather + ' rain' + c.rain + ' wet' + c.wet + ' snow' + c.snow + ' petal' + c.petal).join('  '))
 
-  // restraint: nothing should be blown out
-  rec('no overexposure in any combination', combos.every(c => c.exp <= 1.22 && c.exp >= 0.9),
+  // restraint: nothing blown out, nothing muddy
+  rec('no overexposure in any combination', combos.every(c => c.exp <= 1.09 && c.exp >= 0.9),
       'exposure range ' + Math.min(...combos.map(c=>c.exp)) + '-' + Math.max(...combos.map(c=>c.exp)))
   rec('day is the brightest, night the darkest',
       byTime.day.exp > byTime.sunset.exp && byTime.sunset.exp > byTime.night.exp,
       [byTime.day.exp, byTime.sunset.exp, byTime.night.exp].join(' > '))
+  rec('daylight is stronger than night light', byTime.day.light > byTime.night.light * 2,
+      byTime.day.light + ' vs ' + byTime.night.light)
   rec('night shows stars and moon', byW.sunny.stars > 0.5 && byW.sunny.moon > 0.5)
   rec('day shows no stars', byTime.day.stars < 0.05)
+  rec('sunset is a genuine middle state',
+      byTime.sunset.light > byTime.night.light && byTime.sunset.light < byTime.day.light,
+      byTime.sunset.light)
   rec('snow only when snowing', combos.every(c => (c.weather === 'snow') === (c.snow > 0.5)))
   rec('sakura only in spring', combos.every(c => (c.weather === 'spring') === (c.petal > 0.5)))
-  rec('rain is heaviest at night, lightest by day',
-      byW.rain.rain > byTime.day.rain, 'night ' + byW.rain.rain + ' vs day ' + byTime.day.rain)
+  rec('rain only when raining', combos.every(c => (c.weather === 'rain') === (c.rain > 0.5)))
+  rec('rain darkens and thickens the air',
+      byW.rain.light < byW.sunny.light && byW.rain.fog > byW.sunny.fog,
+      'rain light ' + byW.rain.light + ' vs clear ' + byW.sunny.light)
+  rec('wet ground appears with rain and snow', byW.rain.wet > 0.5 && byW.snow.wet > 0.2 && byW.sunny.wet < 0.2)
+  rec('windows glow more at night and in snow',
+      byW.snow.windows > byW.sunny.windows, byW.snow.windows + ' vs ' + byW.sunny.windows)
+
+  // no RGB channel should ever wrap or blow out mid-transition
+  a.set({ time: 'day', weather: 'sunny' }, true); step(30)
+  a.set({ time: 'night', weather: 'snow' })
+  let maxCh = 0, minCh = 255
+  for (let i = 0; i < 45; i++){
+    a.update(0.1, i * 0.1)
+    for (const ch of a.state.cur.bg){ if (ch > maxCh) maxCh = ch; if (ch < minCh) minCh = ch }
+  }
+  rec('background channels stay in range through a transition', minCh >= 0 && maxCh <= 255,
+      'min ' + minCh + ' max ' + maxCh)
 
   window.__combos = combos
 }
@@ -283,8 +306,20 @@ SCENARIOS.transitions = async ({ Y, rec }) => {
 
   // rapid switching must not stack timers or duplicate systems
   for (let i = 0; i < 12; i++){ a.set({ time: i % 2 ? 'day' : 'night', weather: i % 3 ? 'rain' : 'snow' }); a.update(0.05, i) }
-  rec('rapid switching leaves one coherent state', Number.isFinite(a.state.cur.exposure) && Number.isFinite(a.state.cur.bg))
+  const c = a.state.cur
+  rec('rapid switching leaves one coherent state',
+      Number.isFinite(c.exposure) && Number.isFinite(c.light) && Number.isFinite(c.fogDensity) &&
+      Array.isArray(c.bg) && c.bg.length === 3 && c.bg.every(Number.isFinite),
+      'exposure ' + c.exposure.toFixed(3) + ' bg ' + JSON.stringify(c.bg.map(n => +n.toFixed(1))))
+  rec('background channels stay numeric after rapid switching',
+      c.bg.every(n => n >= 0 && n <= 255), JSON.stringify(c.bg.map(n => +n.toFixed(1))))
   rec('rain opacity owned by atmosphere, single source', typeof a.state.cur.rain === 'number')
+  // and it must still converge on whatever was asked for last
+  const asked = a.target()
+  for (let i = 0; i < 80; i++) a.update(0.1, i)
+  rec('settles on the last requested state after rapid switching',
+      Math.abs(a.state.cur.exposure - asked.exposure) < 0.02,
+      a.state.cur.exposure.toFixed(3) + ' vs ' + asked.exposure.toFixed(3))
 }
 
 /* ------------------------------------------------------------------ *
@@ -301,9 +336,120 @@ SCENARIOS.districts = async ({ Y, rec }) => {
 }
 
 /* ------------------------------------------------------------------ *
- * 7. REGRESSION — the previously passing surface still works          *
+ * 8. MOBILE / TOUCH                                                     *
+ * Runs inside a 390x844 viewport. This is emulation, not a physical   *
+ * device: layout, hit targets, overflow and tap paths are exercised,  *
+ * but nothing here can prove behaviour on real hardware.             *
  * ------------------------------------------------------------------ */
+SCENARIOS.mobile = async ({ w, d, Y, $, rec, sleep }) => {
+  const y = Y()
+  const W = w.innerWidth
+  rec('viewport is phone sized', W <= 500, W + 'x' + w.innerHeight)
+
+  // no sideways scroll
+  rec('no horizontal overflow', d.documentElement.scrollWidth <= d.documentElement.clientWidth + 1,
+      d.documentElement.scrollWidth + ' vs ' + d.documentElement.clientWidth)
+
+  // intro must not trap the page
+  enterSite(d)
+  await sleep(1300)
+  rec('intro dismissed on tap', d.getElementById('intro').classList.contains('done'))
+  rec('body scrollable after intro', !d.body.classList.contains('locked'))
+
+  // panels become bottom sheets on a narrow screen. Compare against the
+  // layout viewport (clientWidth), since innerWidth includes the scrollbar
+  const CW = d.documentElement.clientWidth
+  const sheet = id => {
+    const el = $(id)
+    if (!el) return null
+    const cs = w.getComputedStyle(el)
+    return { bottom: parseFloat(cs.bottom) || 0, top: parseFloat(cs.top) || 0,
+             width: el.offsetWidth, left: el.offsetLeft }
+  }
+  const anchored = sh => !!sh && Math.abs(sh.bottom) < 1 && sh.width >= CW - 2 && sh.left === 0
+  const dlg = sheet('dialogue')
+  rec('dialogue is a full-width bottom sheet on mobile', anchored(dlg),
+      dlg ? 'w' + dlg.width + '/' + CW + ' left' + dlg.left + ' bottom' + dlg.bottom : 'missing')
+  for (const id of ['location', 'discovery']){
+    const sh = sheet(id)
+    rec(id + ' is a bottom sheet too', anchored(sh),
+        sh ? 'w' + sh.width + ' left' + sh.left + ' bottom' + sh.bottom : 'missing')
+  }
+
+  // touch targets must be big enough to hit
+  const tooSmall = []
+  const check = sel => {
+    const el = $(sel)
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    if (r.width && r.height && (r.height < 34 || r.width < 34)) tooSmall.push(sel + ' ' + Math.round(r.width) + 'x' + Math.round(r.height))
+  }
+  ;['atmos-toggle', 'enter-tokyo', 'begin', 'explore', 'dlg-close', 'loc-close', 'disc-close'].forEach(check)
+  rec('primary touch targets are large enough', tooSmall.length === 0, tooSmall.join(', ') || 'all ok')
+
+  // tapping a person must work with no hover: the app listens for pointerdown
+  y.state.mode = 'tour'
+  const chips = d.querySelectorAll('.guide-chip')
+  rec('guide chips exist to tap', chips.length === 9, chips.length + ' chips')
+  const chip = chips[0]
+  chip.click()
+  await sleep(400)
+  rec('tapping a person opens the conversation', $('dialogue').classList.contains('on'))
+  rec('conversation usable on a small screen', $('dlg-body').offsetHeight > 40,
+      'body height ' + $('dlg-body').offsetHeight)
+
+  // speech controls reachable by tap
+  const tools = ['dlg-mic', 'dlg-listen', 'dlg-text'].map(s => $(s))
+  rec('all speech controls present for tapping', tools.every(Boolean))
+  const smallTool = tools.filter(t => t && t.getBoundingClientRect().height < 28)
+  rec('speech controls meet the tap size', smallTool.length === 0,
+      smallTool.map(t => Math.round(t.getBoundingClientRect().height)).join(',') || 'ok')
+
+  // typing works without a keyboard
+  const typed = $('dlg-typed')
+  typed.value = 'where should I eat'
+  $('dlg-typeform').dispatchEvent(new w.Event('submit', { cancelable: true, bubbles: true }))
+  await sleep(500)
+  rec('typed question routed by tap', $('dlg-body').querySelectorAll('.dlg-line').length >= 3,
+      $('dlg-body').querySelectorAll('.dlg-line').length + ' lines')
+  y.closeDialogue()
+  await sleep(300)
+
+  // a tap (pointerdown) on the atmosphere toggle opens the control
+  const t = $('atmos-toggle')
+  const r = t.getBoundingClientRect()
+  t.dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: r.left + 5, clientY: r.top + 5 }))
+  t.click()
+  await sleep(250)
+  rec('atmosphere control opens by tap', !$('atmos-panel').hasAttribute('hidden'))
+  const wb = $('atmos-weathers')
+  rec('weather options reachable', !!wb && wb.querySelectorAll('button').length === 4)
+  if (wb){
+    wb.querySelector('button[data-w="snow"]').click()
+    await sleep(300)
+    rec('tapping a weather option changes the world', y.atmosphere.state.weather === 'snow',
+        'weather=' + y.atmosphere.state.weather)
+  }
+
+  // touch scrolling stays the primary mechanic
+  y.state.p = 0
+  const W2 = w
+  const tourTop = d.getElementById('tour').offsetTop
+  const span = Math.max(1, d.getElementById('chapters').offsetHeight - W2.innerHeight)
+  W2.scrollTo({ top: tourTop + span * 0.4, behavior: 'instant' })
+  W2.dispatchEvent(new W2.Event('scroll'))
+  await sleep(300)
+  rec('touch scrolling drives the journey', y.state.p > 0.05, 'p=' + y.state.p.toFixed(3))
+
+  // nothing invisible may cover the page
+  const cx = Math.round(W / 2), cy2 = Math.round(w.innerHeight / 2)
+  const hitAtCentre = d.elementFromPoint(cx, cy2)
+  rec('page centre is not blocked by an invisible overlay',
+      !hitAtCentre || !/^#(intro|dialogue|location|discovery)$/.test(hitAtCentre.id),
+      hitAtCentre ? (hitAtCentre.id || hitAtCentre.tagName) : 'none')
+}
 SCENARIOS.regression = async ({ w, d, Y, $, rec, sleep }) => {
+  const W = w.innerWidth, H = w.innerHeight
   const y = Y()
   const txt = s => ($(s) || {}).textContent || ''
 
@@ -359,14 +505,41 @@ SCENARIOS.regression = async ({ w, d, Y, $, rec, sleep }) => {
       y.itinerary.map(i => i.title + '@' + i.time).join(', '))
 
   // map
-  y.initMap(); await sleep(1500)
+  y.initMap()
+  for (let i = 0; i < 20 && !/OpenStreetMap/.test(txt('map-status')); i++) await sleep(400)
   const mapEl = $('map')
   rec('map canvas created', !!mapEl && !!mapEl.querySelector('canvas'))
   const mk = mapEl ? mapEl.querySelectorAll('.maplibregl-marker').length : 0
   rec('22 markers on the map', mk === 22, mk + ' markers')
   rec('map reports real geography', /OpenStreetMap/.test(txt('map-status')), txt('map-status'))
 
-  // stability
-  rec('no mouse-driven camera', true)
-  rec('reduced-motion wiring present', typeof y.reduced === 'boolean')
+  // stability, proved by behaviour rather than by reading the source
+  y.state.mode = 'tour'
+  y.state.p = 0.45
+  y.applyCamera()
+  const before = y.camera.position.toArray().map(n => +n.toFixed(4))
+  const lookBefore = y.camera.rotation.toArray().slice(0, 3).map(n => +n.toFixed(4))
+  /* sweep the pointer right across the screen and then far up */
+  for (const pt of [[5, 5], [W / 2, 5], [W - 5, 5], [W - 5, H - 5], [5, H - 5], [W / 2, H / 2]]){
+    w.dispatchEvent(new w.PointerEvent('pointermove', { bubbles: true, clientX: pt[0], clientY: pt[1] }))
+  }
+  await sleep(500)
+  y.applyCamera()
+  const after = y.camera.position.toArray().map(n => +n.toFixed(4))
+  const lookAfter = y.camera.rotation.toArray().slice(0, 3).map(n => +n.toFixed(4))
+  const moved = before.some((v, i) => Math.abs(v - after[i]) > 0.0005)
+  const lookMoved = lookBefore.some((v, i) => Math.abs(v - lookAfter[i]) > 0.0005)
+  rec('pointer movement does not move the camera', !moved,
+      before.join(',') + ' -> ' + after.join(','))
+  rec('pointer movement does not turn the camera', !lookMoved)
+
+  /* the camera is driven by scroll alone */
+  y.state.p = 0.80
+  y.applyCamera()
+  const scrolled = y.camera.position.toArray().map(n => +n.toFixed(3))
+  rec('scroll progress does move the camera', scrolled.some((v, i) => Math.abs(v - after[i]) > 0.01),
+      after.join(',') + ' -> ' + scrolled.join(','))
+
+  rec('reduced-motion preference is readable at runtime', typeof y.reduced === 'boolean',
+      'reduced=' + y.reduced)
 }

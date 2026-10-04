@@ -196,13 +196,14 @@ function addSign(text, color, x, y, z, scale=1, faceCam=false){
   const m = new THREE.Mesh(new THREE.PlaneGeometry(3.2*scale, 0.9*scale), mat)
   m.position.set(x, y, z)
   if(faceCam) m.lookAt(camera.position.x, y, camera.position.z)
-  m.userData = { baseOpacity: 0.95, flickerT: 0, type:'sign', text, baseColor: new THREE.Color(0xffffff) }
+  m.userData = { baseOpacity: 0.95, flickerT: 0, type:'sign', text, refl:null, baseColor: new THREE.Color(0xffffff) }
   city.add(m)
   signs.push(m)
   const refl = new THREE.Mesh(
     new THREE.PlaneGeometry(3.2*scale, 0.9*scale),
     new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending })
   )
+  m.userData.refl = refl
   refl.rotation.x = -Math.PI/2
   refl.rotation.z = Math.PI
   refl.position.set(x, 0.03, z + 0.4)
@@ -586,38 +587,6 @@ const streakMat = new THREE.PointsMaterial({ color: 0xffd9a0, size: 0.35, transp
 const streaks = new THREE.Points(streakGeo, streakMat)
 camera.add(streaks)
 
-const VIBES = {
-  hungry:   { label:'HUNGRY',   emoji:'🍜', color:'#ffb36b', rain:0.4, traffic:0.6, fog:0.020, signSpeed:1,   bloom:0.55, crowd:0.7,  sway:1,   steam:1.2, desc:'Follow the steam. Late-night ramen, tiny izakayas, vending machines and streets that smell better at 1 AM.', cta:'FEED ME →' },
-  nightlife:{ label:'NIGHTLIFE',emoji:'🎧', color:'#ff2e88', rain:0.2, traffic:1.5, fog:0.010, signSpeed:2.2, bloom:0.95, crowd:1.6,  sway:1.2, steam:0.3, desc:'The city gets louder. Neon, music, crowded streets and nights that don\'t really have an ending.', cta:'TURN IT UP →' },
-  quiet:    { label:'QUIET',    emoji:'🌙', color:'#7fd4ff', rain:1.25,traffic:0.12,fog:0.030, signSpeed:0.5, bloom:0.35, crowd:0.28, sway:0.5, steam:0.2, desc:'Take the long way home. Rainy streets, empty alleys, convenience stores glowing in the distance.', cta:'SLOW DOWN →' },
-  chaotic:  { label:'CHAOTIC',  emoji:'🕹️', color:'#ffe95a', rain:0.5, traffic:2.4, fog:0.008, signSpeed:4.5, bloom:1.05, crowd:1.9,  sway:2.4, steam:0.4, desc:'Wrong train. Wrong street. Right night. Arcades, crowds, lights, noise and absolutely no plan.', cta:'LOSE YOURSELF →' },
-  romantic: { label:'ROMANTIC', emoji:'💗', color:'#ff9ecf', rain:0.55,traffic:0.4, fog:0.019, signSpeed:0.8, bloom:0.65, crowd:0.5,  sway:0.7, steam:0.7, desc:'Some cities look better in the rain. Find a quiet rooftop. Watch the trains. Stay a little longer.', cta:'STAY AWHILE →' }
-}
-const vibe = { rain:0.4, traffic:0.6, fog:0.012, signSpeed:1, bloom:0.7, crowd:0.7, sway:1, steam:0.4 }
-let vibeTarget = VIBES.quiet
-
-const vibeObjects = []
-const vibeNames = Object.keys(VIBES)
-function buildVibeObjects(){
-  vibeNames.forEach((name, i)=>{
-    const v = VIBES[name]
-    const { tex } = canvasTex(256, 256, (ctx)=>{
-      ctx.clearRect(0,0,256,256)
-      ctx.font = '170px "Segoe UI Emoji","Apple Color Emoji",serif'
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-      ctx.shadowColor = v.color; ctx.shadowBlur = 34
-      ctx.fillText(v.emoji, 128, 138)
-    })
-    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false })
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 2.3), mat)
-    m.position.set((i-2)*3.1, 1.3, 0.5)
-    m.userData = { type:'vibe', name, baseY: 1.3, phase: i*1.3 }
-    scene.add(m)
-    vibeObjects.push(m)
-  })
-}
-buildVibeObjects()
-vibeObjects.forEach(o=>o.visible=false)
 
 const $ = id => document.getElementById(id)
 
@@ -661,28 +630,44 @@ const camLook = new THREE.Vector3()
  * ------------------------------------------------------------------ */
 
 const TOUR = [
-  { at:0.00, pos:[0, 15, 34],    look:[0, 7, -40],   district:'Shinjuku',
+  { at:0.00, pos:[0, 15, 34],     look:[0, 7, -40],    district:'Shinjuku',
     idx:'01', title:'The city is <em>just waking up.</em>',
-    body:'Rain over the expressway. Somewhere below, a kitchen light comes on at two in the morning. Tokyo is not asleep — it has simply changed its shift.' },
-  { at:0.14, pos:[0, 3.6, 8],    look:[-2, 2.6, -30], district:'Nishi-Shinjuku',
+    body:'Rain over the expressway. Somewhere below, a kitchen light comes on at two in the morning. Tokyo is not asleep \u2014 it has simply changed its shift.' },
+  { at:0.09, pos:[0, 3.6, 6],      look:[-2, 2.6, -28], district:'Nishi-Shinjuku',
     idx:'02', title:'Follow the light.',
     body:'We leave the wide road behind. The lane narrows. Steam lifts from a doorway, and someone has left a single lamp on for the people who know where to look.' },
-  { at:0.28, pos:[1.4, 2.2, -32], look:[-1, 1.8, -48], district:'Yoyogi',
+  { at:0.18, pos:[1.4, 2.2, -26],   look:[-1, 1.8, -42], district:'Harajuku',
     idx:'03', title:'Dinner, <em>without the crowd.</em>',
     body:'Twelve seats. A menu written when you sit down. The kitchen has been running since five, and the chef will decide what tonight tastes like.' },
-  { at:0.42, pos:[0, 2.6, -44],  look:[0, 1.6, -54],  district:'Shibuya',
+  { at:0.27, pos:[0, 2.6, -40],     look:[0, 1.6, -54],  district:'Shibuya',
     idx:'04', title:'Thousands of stories <em>cross here every night.</em>',
     body:'The scramble crossing empties for perhaps ninety seconds each hour. That minute is the closest thing Tokyo has to a private moment.' },
-  { at:0.56, pos:[0.6, 2.0, -60],look:[-1, 1.6, -74], district:'Shibuya',
+  { at:0.36, pos:[0.6, 2.0, -54],   look:[-1, 1.6, -68], district:'Nakameguro',
     idx:'05', title:'The Tokyo <em>most visitors never see.</em>',
-    body:'One street back from the light, the volume drops completely. Izakayas with six seats. A cat that owns the pavement. A door with no sign.' },
-  { at:0.70, pos:[0, 2.2, -78],  look:[0, 2.0, -94],  district:'Shibuya',
+    body:'One street back from the light the volume drops completely. Low-rise cafés, a river two blocks over, and a cat that owns the pavement.' },
+  { at:0.45, pos:[-0.8, 2.1, -68],  look:[1, 1.8, -82],  district:'Roppongi',
     idx:'06', title:'A city that <em>rewards the detour.</em>',
-    body:'Akihabara hums three districts away, but this arcade is quieter. The machines have been here longer than the building, and someone still remembers everyone\'s high score.' },
-  { at:0.84, pos:[0, 3.0, -96],  look:[0, 8, -140],  district:'Shibuya',
-    idx:'07', title:'Above it, <em>the city keeps moving.</em>',
-    body:'From eleven floors up the rain stops falling on you. Below, a train runs empty, a shop pulls its shutter, and another night begins without ceremony.' }
+    body:'Galleries on the upper floors and nothing on the street to advertise them. The loudest district in Tokyo is quiet from this side of the road.' },
+  { at:0.54, pos:[0.4, 2.3, -82],   look:[0, 1.7, -96],  district:'Ginza',
+    idx:'07', title:'Everything <em>under glass.</em>',
+    body:'Wide road, clean stone, and shopfronts that are lit like galleries rather than shops. Nobody hurries here, including the traffic.' },
+  { at:0.63, pos:[0, 2.5, -96],     look:[0, 1.7, -110], district:'Tsukiji',
+    idx:'08', title:'The market <em>before the market.</em>',
+    body:'At this hour the wholesale trade is over and the counters are waking up instead. Tamagoyaki on a grill, uni cut by hand, knives three generations old.' },
+  { at:0.72, pos:[0.6, 2.2, -110],  look:[-1, 1.7, -124],district:'Akihabara',
+    idx:'09', title:'Ten floors <em>of everything.</em>',
+    body:'Electronics, manga, games and model kits, stacked to the ceiling. The trains run under the district rather than through it, and you can hear them before you see them.' },
+  { at:0.81, pos:[-0.4, 2.2, -124], look:[0, 1.8, -138], district:'Asakusa',
+    idx:'10', title:'Older <em>than the city around it.</em>',
+    body:'Sensō-ji has been standing on this ground since the seventh century, and Nakamise still belongs to the shopkeepers rather than the coaches. Lanterns, not screens.' },
+  { at:0.90, pos:[0.4, 2.4, -138],  look:[0, 4, -152],   district:'Asakusa',
+    idx:'11', title:'Lanterns <em>instead of screens.</em>',
+    body:'Two thousand red lanterns on a single gate, and not one of them is trying to sell you anything. This is the part of Tokyo that predates all of it.' },
+  { at:1.00, pos:[0, 11, -150],     look:[0, 16, -196],  district:'Rooftop',
+    idx:'12', title:'Above it, <em>the city keeps moving.</em>',
+    body:'You made it. From up here the rain stops falling on you. Below, a train runs near empty, a shop pulls its shutter, and another night begins without ceremony.' }
 ]
+
 
 /* Normal motion: smooth cinematic travel between waypoints. */
 function camAt(p){
@@ -723,6 +708,20 @@ TOUR.forEach((c, i) => {
                 '<p>' + c.body + '</p>'
   chaptersEl.appendChild(d)
 })
+
+/* Where does a given depth along the street fall in the journey? Derived from
+   the TOUR so nobody has to hand-maintain a number that can drift out of sync
+   with the camera path. */
+function pForZ(z){
+  let a = TOUR[0], b = TOUR[TOUR.length - 1]
+  for (let i = 0; i < TOUR.length - 1; i++){
+    if (z <= TOUR[i].pos[2] && z >= TOUR[i + 1].pos[2]){ a = TOUR[i]; b = TOUR[i + 1]; break }
+    if (z > TOUR[0].pos[2]){ a = b = TOUR[0]; break }
+  }
+  const span = a.pos[2] - b.pos[2]
+  const t = span === 0 ? 0 : clamp((a.pos[2] - z) / span, 0, 1)
+  return a.at + (b.at - a.at) * t
+}
 
 /* ------------------------------ people ---------------------------- */
 
@@ -773,29 +772,34 @@ function makePerson(x, z, coat, accent, facing){
    fictional characters and nothing in the dialogue implies otherwise (§42). */
 const PEOPLE = [
   { id:'akira',  name:'Akira',  role:'Local guide',           district:'Nishi-Shinjuku', near:'omoide',   knows:'nightlife, hidden streets, late-night dining',
-    x:-2.2, z:-8,  facing: 1.1,  coat:0x2b2620, accent:0xa8894f, from:0.01, to:0.14, idle:'phone' },
+    x:-2.2, z:-8,  facing: 1.1,  coat:0x2b2620, accent:0xa8894f, idle:'phone' },
   { id:'yuki',   name:'Yuki',   role:'Private cultural guide', district:'Yoyogi',        near:'meiji',    knows:'temples, shrines, quiet lanes, cultural context',
-    x:-2.4, z:-30, facing: 1.2,  coat:0x2b2620, accent:0xc9a961, from:0.16, to:0.32, idle:'guide' },
+    x:-2.4, z:-30, facing: 1.2,  coat:0x2b2620, accent:0xc9a961, idle:'guide' },
   { id:'aoi',    name:'Aoi',    role:'Chef',                  district:'Minami-Aoyama', near:'narisawa', knows:'Japanese cuisine, ingredients, kaiseki, food etiquette',
-    x:0.7,  z:-46, facing:-0.9,  coat:0x33291f, accent:0xd8c9a8, from:0.30, to:0.46, idle:'chef' },
+    x:0.7,  z:-46, facing:-0.9,  coat:0x33291f, accent:0xd8c9a8, idle:'chef' },
   { id:'rei',    name:'Rei',    role:'Luxury concierge',      district:'Ginza',         near:'jiro',     knows:'shopping, design, fine dining, private experiences',
-    x:2.4,  z:-54, facing:-1.2,  coat:0x2a2530, accent:0xb9aec4, from:0.42, to:0.54, idle:'curator' },
+    x:2.4,  z:-54, facing:-1.2,  coat:0x2a2530, accent:0xb9aec4, idle:'curator' },
   { id:'haruki', name:'Haruki', role:'Sake curator',          district:'Ginza',         near:'birdland', knows:'sake, grain, brewing, pairing',
-    x:2.6,  z:-70, facing:-1.4,  coat:0x241f1c, accent:0xa8894f, from:0.52, to:0.64, idle:'host' },
+    x:2.6,  z:-70, facing:-1.4,  coat:0x241f1c, accent:0xa8894f, idle:'host' },
   { id:'sora',   name:'Sora',   role:'Photographer',          district:'Shibuya',       knows:'photography, street culture, night views, quiet observation points',
-    x:-2.8, z:-78, facing: 1.4,  coat:0x22262c, accent:0xc9d4dc, from:0.60, to:0.72, idle:'photo' },
+    x:-2.8, z:-78, facing: 1.4,  coat:0x22262c, accent:0xc9d4dc, idle:'photo' },
   { id:'ren',    name:'Ren',    role:'Independent designer', district:'Kuramae',       knows:'craft, textiles, small studios, independent makers',
-    x:-2.6, z:-90, facing: 1.5,  coat:0x2a2530, accent:0xb9aec4, from:0.68, to:0.80, idle:'curator' },
+    x:-2.6, z:-90, facing: 1.5,  coat:0x2a2530, accent:0xb9aec4, idle:'curator' },
   { id:'mika',   name:'Mika',   role:'Tea practitioner',      district:'Minami-Aoyama', near:'ippodo',   knows:'matcha, ceremony, gyokuro, tea etiquette',
-    x:2.2,  z:-100,facing:-1.1,  coat:0x36302a, accent:0xc9a961, from:0.76, to:0.92, idle:'host' },
+    x:2.2,  z:-100,facing:-1.1,  coat:0x36302a, accent:0xc9a961, idle:'host' },
   { id:'kenji',  name:'Kenji',  role:'Record dealer',         district:'Shimokitazawa', near:'tsuwajiri',knows:'vinyl, jazz, city pop, listening rooms',
-    x:-2.4, z:-104,facing: 1.0,  coat:0x2e2a26, accent:0xc9a961, from:0.86, to:0.98, idle:'phone' }
+    x:-2.4, z:-104,facing: 1.0,  coat:0x2e2a26, accent:0xc9a961, idle:'phone' }
 ]
 const chipLayer = $('chip-layer')
 PEOPLE.forEach(p => {
   p.mesh = makePerson(p.x, p.z, p.coat, p.accent, p.facing)
   p.mesh.userData.type = 'person'
   p.mesh.userData.id = p.id
+  /* each person is available around the stretch of street they stand on */
+  const at = pForZ(p.z)
+  p.at = at
+  p.from = Math.max(0, at - 0.055)
+  p.to = Math.min(1, at + 0.055)
   const chip = document.createElement('button')
   chip.className = 'guide-chip'
   chip.setAttribute('aria-label', 'Speak with ' + p.name + ', ' + p.role + ' in ' + p.district)
@@ -1007,12 +1011,14 @@ const PHASE_ADVICE = {
 }
 
 function weatherAdvice(){
-  const m = atmosphere.state.mode
-  if (m === 'snow')  return 'With snow coming down I would keep tonight intimate and indoors. The city is quieter and the counters are warmer.'
-  if (m === 'spring') return 'The blossoms are at their best right now, and the light through them lasts about an hour.'
-  if (m === 'day')    return 'Daylight does something to this city — the same street reads completely differently.'
-  if (m === 'sunset') return 'Sunset. Fifteen minutes and every window in the city switches on at once.'
-  return 'It is raining softly. I would stay close and make the evening about food.'
+  const a = atmosphere.state
+  const w = a.weather, tm = a.time
+  if (w === 'snow') return 'With snow coming down I would keep tonight intimate and indoors. The city is quieter and the counters are warmer.'
+  if (w === 'rain') return 'It is raining softly. I would stay close and make the evening about food.'
+  if (w === 'spring') return 'The blossoms are at their best right now, and the light through them lasts about an hour.'
+  if (tm === 'day') return 'Daylight does something to this city — the same street reads completely differently.'
+  if (tm === 'sunset') return 'Sunset. Fifteen minutes and every window in the city switches on at once.'
+  return 'It is clear, which is rarer than you would think. The city is unusually legible tonight.'
 }
 
 /* a weather/time-flavoured reply, in this character's own district and voice (§14,§35,§36) */
@@ -1764,7 +1770,8 @@ const AREA_AT = {
   'Asakusa Nakamise':0.93, 'Shinjuku Gyoen Night':0.03, 'Yoyogi Park':0.35
 }
 
-const TOUR_NAV = { jiro:0.22, nonbei:0.30, omoide:0.40, menchi:0.52, narisawa:0.56, birdland:0.64, ippodo:0.70, kagari:0.86 }
+const TOUR_NAV = {}
+let lastDistrict = null
 
 const toast_placeholder = null
 
@@ -2344,48 +2351,613 @@ function buildDishRail(){
   showDish(0)
 }
 
-/* Dishes have no licensed photography available, so they get a generated
-   still life instead of a broken icon (§29). Never a random image URL. */
-function drawDishArt(cv, d){
-  const w = cv.width = 560, h = cv.height = 280
-  const x = cv.getContext('2d')
-  const g = x.createLinearGradient(0, 0, 0, h)
-  g.addColorStop(0, '#1a1512'); g.addColorStop(1, '#2b211a')
-  x.fillStyle = g; x.fillRect(0, 0, w, h)
+/* ==========================================================================
+   FOOD, DRAWN
+   No licensed food photography exists for these dishes, and inventing image
+   URLs is not an option. Rather than a plate with a coloured shape on it,
+   each dish is drawn from the inside out: the actual vessel, the actual
+   arrangement of the actual components, in the presentation you would
+   actually be served. Warm overhead light, dark table, no garnish fiction.
+   ========================================================================== */
 
-  /* a low table plane */
-  x.fillStyle = 'rgba(60,44,30,.55)'
-  x.beginPath(); x.moveTo(0, h*0.62); x.lineTo(w, h*0.5); x.lineTo(w, h); x.lineTo(0, h); x.fill()
+const DISH_ART = {
+  /* --- shared drawing helpers --- */
+  _table(x, w, h, warm){
+    const g = x.createLinearGradient(0, 0, 0, h)
+    g.addColorStop(0, '#14100e'); g.addColorStop(1, '#241c16')
+    x.fillStyle = g; x.fillRect(0, 0, w, h)
+    const rg = x.createRadialGradient(w/2, h*0.42, 10, w/2, h*0.42, w*0.5)
+    rg.addColorStop(0, 'rgba(255,224,170,' + (warm || 0.16) + ')')
+    rg.addColorStop(1, 'rgba(255,224,170,0)')
+    x.fillStyle = rg; x.fillRect(0, 0, w, h)
+    const v = x.createRadialGradient(w/2, h/2, h*0.25, w/2, h/2, h*1.05)
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.62)')
+    x.fillStyle = v; x.fillRect(0, 0, w, h)
+  },
+  _steam(x, cx, y, n, alpha){
+    x.strokeStyle = 'rgba(255,246,232,' + (alpha || 0.16) + ')'
+    x.lineWidth = 2.4; x.lineCap = 'round'
+    for (let i = 0; i < n; i++){
+      const bx = cx + (i - (n-1)/2) * 26
+      x.beginPath()
+      x.moveTo(bx, y)
+      x.bezierCurveTo(bx + 14, y - 22, bx - 14, y - 44, bx + 4, y - 66)
+      x.stroke()
+    }
+  },
+  /* a bowl seen from slightly above: outer wall, inner well, contents */
+  _bowl(x, cx, cy, rw, rh, wall, inner){
+    x.fillStyle = wall
+    x.beginPath(); x.ellipse(cx, cy, rw, rh, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = 'rgba(0,0,0,.34)'
+    x.beginPath(); x.ellipse(cx, cy + rh*0.1, rw*0.98, rh*0.9, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = inner
+    x.beginPath(); x.ellipse(cx, cy + rh*0.06, rw*0.84, rh*0.74, 0, 0, Math.PI*2); x.fill()
+  },
+  _plate(x, cx, cy, rw, rh, rim){
+    x.fillStyle = '#1b1a18'
+    x.beginPath(); x.ellipse(cx, cy + 4, rw + 5, rh + 5, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = rim || '#efe8da'
+    x.beginPath(); x.ellipse(cx, cy, rw, rh, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = 'rgba(0,0,0,.05)'
+    x.beginPath(); x.ellipse(cx, cy + 3, rw*0.82, rh*0.78, 0, 0, Math.PI*2); x.fill()
+  },
+  _label(x, w, h, en, ja, cat){
+    x.font = '300 19px Georgia, serif'; x.fillStyle = 'rgba(244,238,228,.88)'
+    x.fillText(en, 24, h - 40)
+    x.font = '13px "Yu Gothic", "Hiragino Sans", sans-serif'
+    x.fillStyle = 'rgba(201,169,97,.85)'
+    x.fillText(ja, 24, h - 22)
+    if (cat){
+      x.font = '9px monospace'; x.fillStyle = 'rgba(242,236,225,.34)'
+      x.fillText(String(cat).toUpperCase(), w - 24 - x.measureText(String(cat).toUpperCase()).width, h - 22)
+    }
+  },
 
-  /* warm pool of light over the bowl */
-  const rg = x.createRadialGradient(w/2, h*0.55, 8, w/2, h*0.55, w*0.42)
-  rg.addColorStop(0, 'rgba(255,226,170,.34)'); rg.addColorStop(1, 'rgba(255,226,170,0)')
-  x.fillStyle = rg; x.fillRect(0, 0, w, h)
+  /* ---------------- ramen ---------------- */
+  ramen(x, w, h){
+    this._table(x, w, h, 0.2)
+    const cx = w/2, cy = h*0.62
+    /* pale pork-bone broth */
+    this._bowl(x, cx, cy, 128, 46, '#d9d2c4', '#c9a978')
+    x.fillStyle = '#b8905c'
+    x.beginPath(); x.ellipse(cx, cy + 3, 100, 33, 0, 0, Math.PI*2); x.fill()
+    /* noodles, visible at the surface and over the rim */
+    x.strokeStyle = 'rgba(240,226,190,.85)'; x.lineWidth = 3
+    for (let i = 0; i < 9; i++){
+      const yy = cy - 8 + i * 4
+      x.beginPath()
+      x.moveTo(cx - 92, yy)
+      x.bezierCurveTo(cx - 40, yy - 7, cx + 40, yy + 7, cx + 92, yy - 2)
+      x.stroke()
+    }
+    /* chashu: a slice of rolled pork with a pink centre */
+    x.save(); x.translate(cx - 46, cy - 4); x.rotate(-0.18)
+    x.fillStyle = '#e6d3b8'; x.beginPath(); x.ellipse(0, 0, 30, 13, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = '#c98a86'; x.beginPath(); x.ellipse(0, -1, 24, 9, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = '#e8cfa8'; x.beginPath(); x.ellipse(0, -1, 11, 5, 0, 0, Math.PI*2); x.fill()
+    x.restore()
+    /* ajitama: halved marinated egg, orange yolk */
+    x.save(); x.translate(cx + 42, cy - 6)
+    x.fillStyle = '#efe0bd'; x.beginPath(); x.ellipse(0, 0, 17, 14, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = '#e8912f'; x.beginPath(); x.ellipse(0, 1, 9, 8, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = 'rgba(120,70,30,.45)'; x.beginPath(); x.ellipse(0, 0, 17, 14, 0, 0, Math.PI*2);
+    x.lineWidth = 2.5; x.strokeStyle = 'rgba(120,70,30,.45)'; x.stroke()
+    x.restore()
+    /* nori leaning at the back */
+    x.save(); x.translate(cx + 4, cy - 26); x.rotate(0.12)
+    x.fillStyle = '#20242a'; x.fillRect(-26, -20, 52, 40)
+    x.strokeStyle = 'rgba(255,255,255,.07)'; x.lineWidth = 1
+    for (let i = 0; i < 5; i++){ x.beginPath(); x.moveTo(-26, -16 + i*8); x.lineTo(26, -16 + i*8); x.stroke() }
+    x.restore()
+    /* scallions scattered on top */
+    x.fillStyle = '#7f9a4e'
+    for (let i = 0; i < 14; i++){
+      const a = i * 2.1
+      x.save(); x.translate(cx + Math.cos(a)*72, cy - 4 + Math.sin(a)*20); x.rotate(a)
+      x.fillRect(-4, -1.6, 8, 3.2); x.restore()
+    }
+    /* chopsticks on the rim */
+    x.strokeStyle = '#3a2a1c'; x.lineWidth = 4; x.lineCap = 'round'
+    x.beginPath(); x.moveTo(cx + 96, cy - 30); x.lineTo(cx + 168, cy - 52); x.stroke()
+    x.beginPath(); x.moveTo(cx + 104, cy - 26); x.lineTo(cx + 176, cy - 48); x.stroke()
+    this._steam(x, cx, cy - 34, 3, 0.2)
+  },
 
-  /* bowl */
-  x.fillStyle = '#14100d'
-  x.beginPath(); x.ellipse(w/2, h*0.6, 128, 40, 0, 0, Math.PI*2); x.fill()
-  x.fillStyle = '#efe7d6'
-  x.beginPath(); x.ellipse(w/2, h*0.585, 118, 34, 0, 0, Math.PI*2); x.fill()
-  /* contents, tinted per dish */
-  const broth = { ramen:'#c9a06a', sushi:'#e8e0cf', tempura:'#d9a441', yakitori:'#a8642f',
-                  tonkatsu:'#c9853c', wagashi:'#e9c7c9', matcha:'#7fa05a', sake:'#dcc9a0' }
-  x.fillStyle = broth[d.id] || '#c8b596'
-  x.beginPath(); x.ellipse(w/2, h*0.585, 96, 25, 0, 0, Math.PI*2); x.fill()
-  /* steam */
-  x.strokeStyle = 'rgba(255,245,230,.20)'; x.lineWidth = 2
-  for (let i=0;i<3;i++){
+  /* ---------------- sushi ---------------- */
+  sushi(x, w, h){
+    this._table(x, w, h, 0.14)
+    const cx = w/2, cy = h*0.62
+    this._plate(x, cx, cy, 176, 62, '#1e1c19')
+    /* ginger and wasabi first, so the plate is composed */
+    x.fillStyle = '#efeae0'
+    for (let i = 0; i < 6; i++){
+      x.save(); x.translate(cx - 158, cy + 16); x.rotate(i * 0.62)
+      x.beginPath(); x.ellipse(0, 0, 11, 4.6, 0, 0, Math.PI*2); x.fill(); x.restore()
+    }
+    x.fillStyle = '#7d9b52'
+    x.beginPath(); x.ellipse(cx + 156, cy + 20, 13, 9, 0.3, 0, Math.PI*2); x.fill()
+
+    /* five nigiri, each a rice base with the fish laid over it and overhanging */
+    const fish = ['#e2a07c', '#d98a63', '#c9714b', '#e8b478', '#d4785a']
+    const names = ['#e26a4a', '#c9563f', '#b8452f', '#d98a4a', '#c2603f']
+    for (let i = 0; i < 5; i++){
+      const ox = cx - 128 + i * 64
+      const oy = cy - 6 + (i % 2 ? 6 : -4)
+      const tilt = (i - 2) * 0.03
+
+      x.save(); x.translate(ox, oy); x.rotate(tilt)
+
+      /* rice: a squat mound, grains suggested along the lower edge */
+      x.fillStyle = '#f4eee2'
+      x.beginPath(); x.ellipse(0, 6, 27, 15, 0, 0, Math.PI*2); x.fill()
+      x.fillStyle = 'rgba(206,196,176,.45)'
+      for (let g = 0; g < 9; g++){
+        x.beginPath()
+        x.ellipse(-19 + g * 4.8, 8 + ((g * 5) % 7) - 3, 3.6, 2, 0.55, 0, Math.PI*2); x.fill()
+      }
+
+      /* the fish: a slice lying across the top and hanging over both ends */
+      x.fillStyle = fish[i]
+      x.beginPath()
+      x.moveTo(-31, -1)
+      x.bezierCurveTo(-30, -14, -12, -19, 0, -19)
+      x.bezierCurveTo(12, -19, 30, -14, 31, -1)
+      x.bezierCurveTo(22, 3, -22, 3, -31, -1)
+      x.closePath(); x.fill()
+      /* marbling */
+      x.strokeStyle = 'rgba(255,246,232,.55)'; x.lineWidth = 1.3
+      x.beginPath(); x.moveTo(-24, -7); x.bezierCurveTo(-8, -12, 8, -11, 24, -7); x.stroke()
+      x.beginPath(); x.moveTo(-20, -12); x.bezierCurveTo(-6, -16, 8, -15, 20, -12); x.stroke()
+      /* the pale underside catching light */
+      x.fillStyle = 'rgba(255,235,215,.22)'
+      x.beginPath()
+      x.moveTo(-28, -2); x.bezierCurveTo(-14, 1, 14, 1, 28, -2)
+      x.lineTo(28, 1); x.bezierCurveTo(14, 4, -14, 4, -28, 1)
+      x.closePath(); x.fill()
+      /* a nori band around the middle of two of them */
+      if (i === 1 || i === 3){
+        x.fillStyle = '#1d2026'
+        x.fillRect(-14, -20, 28, 26)
+        x.fillStyle = 'rgba(255,255,255,.05)'
+        x.fillRect(-14, -20, 28, 3)
+      }
+      x.restore()
+    }
+
+    /* lacquered chopsticks across the front */
+    x.strokeStyle = '#1d1512'; x.lineWidth = 5.5; x.lineCap = 'round'
+    x.beginPath(); x.moveTo(cx - 46, cy + 64); x.lineTo(cx + 132, cy + 50); x.stroke()
+    x.beginPath(); x.moveTo(cx - 40, cy + 71); x.lineTo(cx + 138, cy + 57); x.stroke()
+    x.fillStyle = '#e8e2d4'
+    x.fillRect(cx - 84, cy + 60, 40, 9)
+  },
+
+  /* ---------------- tempura ---------------- */
+  tempura(x, w, h){
+    this._table(x, w, h, 0.15)
+    const cx = w/2, cy = h*0.6
+    this._plate(x, cx - 10, cy, 196, 52, '#e8e2d4')
+    /* absorbent paper liner */
+    x.fillStyle = '#d9cfb8'
+    x.save(); x.translate(cx - 10, cy); x.rotate(-0.03)
+    x.beginPath(); x.roundRect ? x.roundRect(-186, -32, 372, 64, 4) : x.rect(-186, -32, 372, 64)
+    x.fill()
+    x.strokeStyle = 'rgba(120,100,70,.14)'; x.lineWidth = 1
+    for (let i = 0; i < 9; i++){ x.beginPath(); x.moveTo(-186, -26 + i*7); x.lineTo(186, -26 + i*7); x.stroke() }
+    x.restore()
+
+    /* three pieces, each an irregular battered shape with a dark fried edge */
+    const pieces = [
+      { ox: -104, oy: 2,  rot: -0.20, kind: 'prawn',  sc: 1.00 },
+      { ox: -10,  oy: -8, rot: 0.06,  kind: 'veg',    sc: 0.92 },
+      { ox: 92,   oy: 4,  rot: 0.24,  kind: 'veg2',   sc: 0.86 }
+    ]
+    pieces.forEach(p => {
+      x.save()
+      x.translate(cx + p.ox, cy + p.oy)
+      x.rotate(p.rot)
+      x.scale(p.sc, p.sc)
+
+      /* fried silhouette: lumps of batter, not one smooth ellipse */
+      x.fillStyle = '#c98a34'
+      x.beginPath()
+      const lobes = p.kind === 'prawn' ? 13 : 11
+      for (let k = 0; k <= lobes; k++){
+        const t = k / lobes
+        const ang = t * Math.PI * 2
+        const rx = p.kind === 'prawn' ? 46 : 34
+        const ry = p.kind === 'prawn' ? 21 : 26
+        const bump = 1 + Math.sin(k * 2.3) * 0.11
+        const px = Math.cos(ang) * rx * bump
+        const py = Math.sin(ang) * ry * bump
+        if (k === 0) x.moveTo(px, py); else x.lineTo(px, py)
+      }
+      x.closePath(); x.fill()
+      /* a crisp outline so it does not melt into the plate */
+      x.strokeStyle = 'rgba(90,52,12,.5)'; x.lineWidth = 2; x.stroke()
+
+      /* batter crumb highlights */
+      for (let k = 0; k < 30; k++){
+        const a = k * 0.79
+        const rr = 0.35 + (k % 4) * 0.16
+        x.fillStyle = k % 2 ? 'rgba(255,228,168,.4)' : 'rgba(146,88,24,.34)'
+        x.beginPath()
+        x.arc(Math.cos(a) * 34 * rr * 1.5, Math.sin(a) * 18 * rr * 1.5, 3.1, 0, Math.PI*2); x.fill()
+      }
+      /* shadow under the batter */
+      x.fillStyle = 'rgba(60,30,8,.22)'
+      x.beginPath(); x.ellipse(2, 15, 34, 7, 0, 0, Math.PI*2); x.fill()
+
+      if (p.kind === 'prawn'){
+        /* the tail and the curve of the prawn read clearly */
+        x.fillStyle = '#d9713c'
+        x.beginPath()
+        x.moveTo(34, -2); x.bezierCurveTo(54, -6, 62, 4, 56, 12)
+        x.lineTo(46, 8); x.bezierCurveTo(52, 4, 48, -1, 36, 2)
+        x.closePath(); x.fill()
+        x.strokeStyle = 'rgba(110,44,14,.55)'; x.lineWidth = 1.4; x.stroke()
+        x.fillStyle = 'rgba(255,206,150,.35)'
+        x.beginPath(); x.ellipse(48, 4, 8, 4, 0.4, 0, Math.PI*2); x.fill()
+      }
+      if (p.kind === 'veg'){
+        /* a slice of sweet potato, its orange flesh showing at the cut end */
+        x.fillStyle = '#e08c33'
+        x.beginPath(); x.ellipse(-28, -4, 13, 20, -0.2, 0, Math.PI*2); x.fill()
+        x.strokeStyle = 'rgba(120,60,14,.5)'; x.lineWidth = 1.6; x.stroke()
+        x.strokeStyle = 'rgba(160,80,20,.5)'; x.lineWidth = 1.2
+        x.beginPath(); x.moveTo(-28, -12); x.lineTo(-28, 4); x.stroke()
+      }
+      if (p.kind === 'veg2'){
+        /* lotus root, and you can see the holes */
+        x.fillStyle = '#e6dcc4'
+        x.beginPath(); x.ellipse(0, 2, 26, 22, 0, 0, Math.PI*2); x.fill()
+        x.fillStyle = '#b6a483'
+        for (let k = 0; k < 6; k++){
+          const a = k * 1.05
+          x.beginPath()
+          x.ellipse(Math.cos(a)*12, 2 + Math.sin(a)*10, 4.4, 3.4, 0, 0, Math.PI*2); x.fill()
+        }
+        x.strokeStyle = 'rgba(120,104,72,.6)'; x.lineWidth = 1.6
+        x.beginPath(); x.ellipse(0, 2, 26, 22, 0, 0, Math.PI*2); x.stroke()
+      }
+      x.restore()
+    })
+
+    /* tentsuyu in its own dish, and a mound of grated daikon */
+    this._bowl(x, cx + 236, cy + 52, 46, 17, '#2a2622', '#4a3418')
+    x.fillStyle = '#f4f2e8'
     x.beginPath()
-    const bx = w/2 - 44 + i*44
-    x.moveTo(bx, h*0.55)
-    x.bezierCurveTo(bx+12, h*0.44, bx-12, h*0.36, bx, h*0.24)
-    x.stroke()
+    x.moveTo(cx - 258, cy + 58); x.lineTo(cx - 196, cy + 46)
+    x.lineTo(cx - 196, cy + 62); x.lineTo(cx - 258, cy + 72)
+    x.closePath(); x.fill()
+    x.strokeStyle = 'rgba(150,146,130,.5)'; x.lineWidth = 1
+    for (let i = 0; i < 12; i++){
+      x.beginPath()
+      x.moveTo(cx - 256 + i*5, cy + 50 + i*1.6); x.lineTo(cx - 256 + i*5, cy + 68 - i*1.2)
+      x.stroke()
+    }
+    this._steam(x, cx - 10, cy - 44, 3, 0.15)
+  },
+
+  /* ---------------- yakitori ---------------- */
+  yakitori(x, w, h){
+    this._table(x, w, h, 0.17)
+    const cx = w/2, cy = h*0.58
+    /* rectangular plate, as skewers are served */
+    x.fillStyle = '#191817'
+    x.fillRect(cx - 190, cy - 46, 380, 130)
+    x.fillStyle = '#26241f'
+    x.fillRect(cx - 184, cy - 40, 368, 118)
+    /* six skewers, alternating tare-glazed and salt-only */
+    for (let i = 0; i < 6; i++){
+      const y = cy - 26 + i * 19
+      /* bamboo */
+      x.strokeStyle = '#c8ab74'; x.lineWidth = 3.4; x.lineCap = 'round'
+      x.beginPath(); x.moveTo(cx - 176, y + 4); x.lineTo(cx + 176, y - 4); x.stroke()
+      /* three chunks of chicken */
+      for (let k = 0; k < 3; k++){
+        const bx = cx - 58 + k * 58
+        const glazed = i % 2 === 0
+        x.fillStyle = glazed
+          ? ['#8c4a22', '#a35c28', '#7d3f1c'][k]
+          : ['#d3a45c', '#e0b269', '#c99750'][k]
+        x.beginPath(); x.ellipse(bx, y, 24, 12, 0.05, 0, Math.PI*2); x.fill()
+        /* char marks */
+        x.strokeStyle = 'rgba(40,18,8,.5)'; x.lineWidth = 2.2
+        x.beginPath(); x.moveTo(bx - 14, y - 4); x.lineTo(bx + 14, y + 3); x.stroke()
+        /* glaze sheen */
+        if (glazed){
+          x.fillStyle = 'rgba(255,190,110,.24)'
+          x.beginPath(); x.ellipse(bx - 5, y - 5, 10, 3.4, 0, 0, Math.PI*2); x.fill()
+        }
+      }
+    }
+    /* shichimi shaker and a lemon wedge */
+    x.fillStyle = '#2f2b26'; x.fillRect(cx + 196, cy - 30, 18, 44)
+    x.fillStyle = '#6b3f22'; x.fillRect(cx + 196, cy - 34, 18, 8)
+    x.fillStyle = '#e8d06a'
+    x.beginPath(); x.arc(cx - 214, cy + 34, 15, 0, Math.PI*2); x.fill()
+    x.fillStyle = '#f2e6a8'
+    x.beginPath(); x.arc(cx - 214, cy + 34, 11, 0, Math.PI*2); x.fill()
+  },
+
+  /* ---------------- tonkatsu ---------------- */
+  tonkatsu(x, w, h){
+    this._table(x, w, h, 0.16)
+    const cx = w/2, cy = h*0.62
+    this._plate(x, cx - 54, cy, 146, 62, '#f0ebdf')
+
+    /* shredded cabbage: distinct strands, not a smudge */
+    for (let i = 0; i < 150; i++){
+      const a = i * 0.83, r = Math.sqrt((i % 70) / 70)
+      const sx = cx - 128 + Math.cos(a) * r * 44
+      const sy = cy + 10 + Math.sin(a) * r * 24
+      x.save(); x.translate(sx, sy); x.rotate(a)
+      x.strokeStyle = i % 3 ? 'rgba(232,238,222,.92)' : 'rgba(206,216,196,.9)'
+      x.lineWidth = 2.1
+      x.beginPath(); x.moveTo(-7, 0); x.quadraticCurveTo(0, -2.5, 7, 0); x.stroke()
+      x.restore()
+    }
+    /* the pale heart of the cabbage */
+    x.fillStyle = 'rgba(246,250,240,.75)'
+    x.beginPath(); x.ellipse(cx - 128, cy + 8, 20, 12, 0, 0, Math.PI*2); x.fill()
+
+    /* two halves, clearly separated, each showing a cut face */
+    const halves = [
+      { ox: -44, rot: -0.16 },
+      { ox: 52,  rot: 0.14 }
+    ]
+    halves.forEach(hf => {
+      const bx = cx + hf.ox, by = cy - 4
+      x.save(); x.translate(bx, by); x.rotate(hf.rot)
+
+      /* crust */
+      x.fillStyle = '#d79a45'
+      x.beginPath(); x.ellipse(0, 0, 44, 28, 0, 0, Math.PI*2); x.fill()
+      /* crumb */
+      for (let k = 0; k < 60; k++){
+        const a = k * 0.47
+        x.fillStyle = k % 2 ? 'rgba(255,228,164,.34)' : 'rgba(146,88,26,.3)'
+        x.beginPath()
+        x.arc(Math.cos(a) * 37, Math.sin(a) * 21, 3.2, 0, Math.PI*2); x.fill()
+      }
+      x.strokeStyle = 'rgba(120,66,16,.45)'; x.lineWidth = 1.8
+      x.beginPath(); x.ellipse(0, 0, 44, 28, 0, 0, Math.PI*2); x.stroke()
+
+      /* the cut face, on the inner edge of each half: pale seasoned pork */
+      const dir = hf.ox < 0 ? 1 : -1
+      x.fillStyle = '#f2e6cc'
+      x.beginPath()
+      x.moveTo(dir * 30, -24)
+      x.bezierCurveTo(dir * 46, -14, dir * 46, 14, dir * 30, 24)
+      x.lineTo(dir * 20, 20)
+      x.bezierCurveTo(dir * 34, 10, dir * 34, -10, dir * 20, -20)
+      x.closePath(); x.fill()
+      /* a thin darker rim where crust meets meat */
+      x.strokeStyle = 'rgba(150,110,58,.55)'; x.lineWidth = 1.6
+      x.beginPath()
+      x.moveTo(dir * 24, -21)
+      x.bezierCurveTo(dir * 38, -11, dir * 38, 11, dir * 24, 21)
+      x.stroke()
+      /* sauce clinging to the cut face */
+      x.fillStyle = 'rgba(58,34,16,.45)'
+      x.beginPath()
+      x.moveTo(dir * 34, -12)
+      x.bezierCurveTo(dir * 44, 0, dir * 36, 12, dir * 30, 16)
+      x.bezierCurveTo(dir * 38, 4, dir * 38, -4, dir * 30, -10)
+      x.closePath(); x.fill()
+      x.restore()
+    })
+
+    /* katsudon-style sauce, dark and glossy, pooled not flooded */
+    x.fillStyle = 'rgba(52,30,14,.7)'
+    x.beginPath(); x.ellipse(cx + 4, cy + 22, 108, 20, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = 'rgba(255,214,150,.14)'
+    x.beginPath(); x.ellipse(cx - 16, cy + 16, 34, 6, 0, 0, Math.PI*2); x.fill()
+
+    /* rice bowl and miso soup, as the set is served */
+    this._bowl(x, cx + 196, cy - 4, 60, 24, '#e9e4d8', '#f6f2e8')
+    x.fillStyle = '#efeadd'
+    x.beginPath(); x.ellipse(cx + 196, cy - 6, 46, 17, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = 'rgba(214,204,186,.6)'
+    for (let g = 0; g < 20; g++){
+      x.beginPath()
+      x.ellipse(cx + 196 - 36 + (g % 6) * 14, cy - 10 + Math.floor(g/6) * 5, 6, 2.4, 0.2, 0, Math.PI*2); x.fill()
+    }
+    this._bowl(x, cx + 198, cy + 62, 44, 16, '#ded8ca', '#a9763f')
+    x.fillStyle = '#6f8f45'
+    x.beginPath(); x.ellipse(cx + 208, cy + 60, 5.5, 3, 0, 0, Math.PI*2); x.fill()
+    x.beginPath(); x.ellipse(cx + 186, cy + 64, 4, 2.6, 0, 0, Math.PI*2); x.fill()
+
+    /* mustard, and a pair of tonkatsu-specific chopsticks */
+    x.fillStyle = '#d8b23c'
+    x.beginPath(); x.ellipse(cx - 186, cy + 52, 12, 7.5, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = 'rgba(255,240,180,.35)'
+    x.beginPath(); x.ellipse(cx - 188, cy + 50, 5, 2.6, 0, 0, Math.PI*2); x.fill()
+    x.strokeStyle = '#1d1512'; x.lineWidth = 5; x.lineCap = 'round'
+    x.beginPath(); x.moveTo(cx - 84, cy + 66); x.lineTo(cx + 74, cy + 52); x.stroke()
+    x.beginPath(); x.moveTo(cx - 78, cy + 73); x.lineTo(cx + 80, cy + 59); x.stroke()
+  },
+
+  /* ---------------- wagashi ---------------- */
+  wagashi(x, w, h){
+    this._table(x, w, h, 0.12)
+    const cx = w/2, cy = h*0.6
+    /* a dark lacquer tray, as sweets are presented */
+    x.fillStyle = '#15110f'
+    x.beginPath(); x.roundRect ? x.roundRect(cx - 200, cy - 60, 400, 120, 8) : x.rect(cx - 200, cy - 60, 400, 120)
+    x.fill()
+    x.strokeStyle = 'rgba(201,169,97,.32)'; x.lineWidth = 2
+    x.strokeRect(cx - 192, cy - 52, 384, 104)
+    /* sakura mochi: pink dumpling, pale filling showing, wrapped in leaf */
+    const items = [
+      { ox: -132, kind: 'mochi' },
+      { ox: -44,  kind: 'yokan' },
+      { ox: 44,   kind: 'daifuku' },
+      { ox: 132,  kind: 'mochi' }
+    ]
+    items.forEach((it, i) => {
+      const px = cx + it.ox, py = cy - 4 + (i % 2 ? 8 : -6)
+      /* bamboo leaf under each */
+      x.fillStyle = '#3f5c33'
+      x.save(); x.translate(px, py + 18); x.rotate(-0.2 + i * 0.1)
+      x.beginPath(); x.ellipse(0, 0, 34, 11, 0, 0, Math.PI*2); x.fill()
+      x.strokeStyle = 'rgba(255,255,255,.12)'; x.lineWidth = 1
+      x.beginPath(); x.moveTo(-32, 0); x.lineTo(32, 0); x.stroke()
+      x.restore()
+
+      if (it.kind === 'mochi'){
+        x.fillStyle = '#eec3c8'
+        x.beginPath(); x.ellipse(px, py, 25, 20, 0, 0, Math.PI*2); x.fill()
+        x.fillStyle = 'rgba(255,255,255,.3)'
+        x.beginPath(); x.ellipse(px - 7, py - 7, 10, 7, -0.3, 0, Math.PI*2); x.fill()
+        /* red bean showing at the seam */
+        x.fillStyle = '#6b4230'
+        x.beginPath(); x.ellipse(px + 12, py + 12, 8, 5, 0.3, 0, Math.PI*2); x.fill()
+      } else if (it.kind === 'yokan'){
+        /* a slice of rolled jelly: pale, translucent, one pink end */
+        x.fillStyle = '#e6dcc4'
+        x.beginPath(); x.roundRect ? x.roundRect(px - 30, py - 14, 60, 28, 6) : x.rect(px - 30, py - 14, 60, 28)
+        x.fill()
+        x.fillStyle = 'rgba(255,255,255,.22)'
+        x.fillRect(px - 26, py - 10, 52, 6)
+        x.fillStyle = '#d9a0a8'
+        x.beginPath(); x.ellipse(px + 22, py, 8, 14, 0, 0, Math.PI*2); x.fill()
+        x.strokeStyle = 'rgba(0,0,0,.12)'; x.lineWidth = 1
+        x.strokeRect(px - 30, py - 14, 60, 28)
+      } else {
+        /* daifuku: white mochi dusted with starch, a kinako dusting */
+        x.fillStyle = '#f4f0e6'
+        x.beginPath(); x.ellipse(px, py, 24, 21, 0, 0, Math.PI*2); x.fill()
+        x.fillStyle = 'rgba(198,164,110,.4)'
+        for (let k = 0; k < 30; k++){
+          const a = k * 0.79
+          x.beginPath()
+          x.arc(px + Math.cos(a)*22, py + Math.sin(a)*19, 1.5, 0, Math.PI*2); x.fill()
+        }
+      }
+    })
+    /* a small ceramic cup of hojicha, as it is always served alongside */
+    this._bowl(x, cx - 226, cy + 40, 30, 12, '#cfc7b6', '#6b4423')
+  },
+
+  /* ---------------- matcha ---------------- */
+  matcha(x, w, h){
+    this._table(x, w, h, 0.12)
+    const cx = w/2, cy = h*0.6
+    /* tatami suggestion under a low table */
+    x.fillStyle = '#1c1a16'
+    x.fillRect(cx - 210, cy - 30, 420, 110)
+    /* the chawan: a heavy black bowl */
+    this._bowl(x, cx, cy + 6, 92, 34, '#15120f', '#15120f')
+    x.fillStyle = '#3f6b2e'
+    x.beginPath(); x.ellipse(cx, cy + 3, 74, 25, 0, 0, Math.PI*2); x.fill()
+    /* whisked foam, brightest at the centre */
+    x.fillStyle = '#a8c46a'
+    x.beginPath(); x.ellipse(cx - 4, cy, 44, 14, 0, 0, Math.PI*2); x.fill()
+    x.fillStyle = '#c9dc92'
+    x.beginPath(); x.ellipse(cx - 12, cy - 2, 22, 8, -0.2, 0, Math.PI*2); x.fill()
+    /* bubbles */
+    x.strokeStyle = 'rgba(240,250,210,.45)'; x.lineWidth = 1
+    for (let i = 0; i < 12; i++){
+      const a = i * 0.55
+      x.beginPath()
+      x.arc(cx + Math.cos(a)*44, cy + Math.sin(a)*14, 2 + (i%3), 0, Math.PI*2); x.stroke()
+    }
+    /* chasen, resting across the rim */
+    x.strokeStyle = '#c8ab74'; x.lineWidth = 2.2
+    x.save(); x.translate(cx + 58, cy + 16); x.rotate(-0.5)
+    x.fillStyle = '#b9985f'; x.fillRect(-6, 0, 12, 34)
+    for (let i = 0; i < 10; i++){
+      x.beginPath(); x.moveTo(-6, 4 + i*3); x.lineTo(-16, 16 + i*1.8); x.stroke()
+      x.beginPath(); x.moveTo(6, 4 + i*3); x.lineTo(16, 16 + i*1.8); x.stroke()
+    }
+    x.restore()
+    /* a wagashi sweet beside it, as it is always served with matcha */
+    x.fillStyle = '#e9c7cb'
+    x.beginPath(); x.ellipse(cx - 168, cy + 18, 26, 12, -0.1, 0, Math.PI*2); x.fill()
+    x.fillStyle = '#f4ded0'
+    x.beginPath(); x.ellipse(cx - 168, cy + 14, 18, 7, -0.1, 0, Math.PI*2); x.fill()
+    this._steam(x, cx, cy - 30, 2, 0.22)
+  },
+
+  /* ---------------- sake ---------------- */
+  sake(x, w, h){
+    this._table(x, w, h, 0.15)
+    const cx = w/2, cy = h*0.58
+    /* tokkuri, the fluted pouring bottle */
+    const bx = cx - 96, by = cy + 14
+    x.fillStyle = '#cfc6b4'
+    x.beginPath()
+    x.moveTo(bx - 26, by - 60)
+    x.bezierCurveTo(bx - 44, by - 40, bx - 40, by - 6, bx - 26, by)
+    x.lineTo(bx + 26, by)
+    x.bezierCurveTo(bx + 40, by - 6, bx + 44, by - 40, bx + 26, by - 60)
+    x.closePath(); x.fill()
+    /* flutes */
+    x.strokeStyle = 'rgba(120,110,92,.4)'; x.lineWidth = 1.4
+    for (let i = -2; i <= 2; i++){
+      x.beginPath(); x.moveTo(bx + i*11, by - 58); x.quadraticCurveTo(bx + i*15, by - 26, bx + i*12, by - 2); x.stroke()
+    }
+    /* neck and lip, wrapped in cord */
+    x.fillStyle = '#d8cfbc'; x.fillRect(bx - 13, by - 78, 26, 20)
+    x.fillStyle = '#8c1f24'; x.fillRect(bx - 15, by - 74, 30, 9)
+    /* a paper label, as bottles carry */
+    x.fillStyle = '#efe6d2'
+    x.fillRect(bx - 17, by - 44, 34, 24)
+    x.strokeStyle = 'rgba(80,60,40,.5)'; x.lineWidth = 1
+    for (let i = 0; i < 3; i++){
+      x.beginPath(); x.moveTo(bx - 12, by - 38 + i*7); x.lineTo(bx + 12, by - 38 + i*7); x.stroke()
+    }
+    x.fillStyle = 'rgba(255,255,255,.3)'
+    x.beginPath(); x.ellipse(bx - 12, by - 30, 8, 22, 0.2, 0, Math.PI*2); x.fill()
+
+    /* two ochoko, one filled */
+    ;[[-20, 1], [26, 0]].forEach(o => {
+      const ox = cx + 84 + o[0], oy = cy + 30
+      x.fillStyle = '#e8e3d6'
+      x.beginPath()
+      x.moveTo(ox - 17, oy - 13); x.lineTo(ox + 17, oy - 13)
+      x.lineTo(ox + 13, oy + 4); x.lineTo(ox - 13, oy + 4)
+      x.closePath(); x.fill()
+      x.fillStyle = 'rgba(0,0,0,.1)'
+      x.beginPath(); x.ellipse(ox, oy - 13, 17, 4.5, 0, 0, Math.PI*2); x.fill()
+      if (o[1]){
+        x.fillStyle = '#e6dcc0'
+        x.beginPath(); x.ellipse(ox, oy - 12, 13, 3.4, 0, 0, Math.PI*2); x.fill()
+        x.fillStyle = '#f0e8d0'
+        x.beginPath(); x.ellipse(ox - 3, oy - 12.5, 6, 1.6, 0, 0, Math.PI*2); x.fill()
+      }
+      /* the foot of the cup */
+      x.fillStyle = '#d4cdbd'
+      x.fillRect(ox - 6, oy + 4, 12, 4)
+    })
+
+    /* a folded oshibori on the tray */
+    x.fillStyle = '#e6e8e4'
+    x.fillRect(cx - 250, cy + 12, 86, 26)
+    x.fillStyle = '#d4d8d2'
+    x.fillRect(cx - 250, cy + 12, 86, 5)
+    x.strokeStyle = 'rgba(120,130,120,.35)'; x.lineWidth = 1
+    x.beginPath(); x.moveTo(cx - 244, cy + 20); x.lineTo(cx - 180, cy + 20); x.stroke()
+    x.beginPath(); x.moveTo(cx - 244, cy + 29); x.lineTo(cx - 180, cy + 29); x.stroke()
+    /* a hinoki cup, for contrast */
+    x.fillStyle = '#d9c39a'
+    x.beginPath(); x.ellipse(cx + 214, cy + 24, 22, 9, 0, 0, Math.PI*2); x.fill()
   }
-  /* name plate */
-  x.font = '300 17px Georgia, serif'; x.fillStyle = 'rgba(242,236,225,.8)'
-  x.fillText(d.n, 22, h-34)
-  x.font = '12px monospace'; x.fillStyle = 'rgba(201,169,97,.75)'
-  x.fillText(d.ja || '', 22, h-17)
+}
+
+function drawDishArt(cv, d){
+  const w = cv.width = 720, h = cv.height = 360
+  const x = cv.getContext('2d')
+  const art = DISH_ART[d.id]
+  if (art){
+    art.call(DISH_ART, x, w, h)
+  } else {
+    DISH_ART._table(x, w, h, 0.14)
+  }
+  DISH_ART._label(x, w, h, d.n, d.ja || '', d.cat)
 }
 
 function loadDishImage(d){
@@ -2575,6 +3147,9 @@ const locPins = CITY_MARKS.map(m => m.pin)
 const locPinById = {}
 locPins.forEach(p => { locPinById[p.userData.id] = p })
 
+/* each pin belongs to the stretch of journey it actually stands on */
+CITY_MARKS.forEach(m => { TOUR_NAV[m.loc] = pForZ(m.z) })
+
 /* --------------------- raycast picking (stable) -------------------- */
 
 const ndc = new THREE.Vector2(0, 0)
@@ -2693,6 +3268,179 @@ window.addEventListener('pointerdown', e => {
     return
   }
 })
+
+/* ===================== the street itself ========================== *
+ * Without a road, a kerb and markings the buildings read as boxes floating
+ * in a void. This lays an actual Japanese street: asphalt, a dashed centre
+ * line, edge lines, raised kerbs, gutters, manhole covers, and the utility
+ * poles with their overhead wires that narrow Tokyo streets are known for.
+ * Repeated elements are instanced.
+ * ================================================================= */
+const STREET = { zTop: 10, zBot: -152, half: 5.0, walk: 1.6 }
+let roadMat = null
+
+function buildStreet(){
+  const len = STREET.zTop - STREET.zBot
+  const midZ = (STREET.zTop + STREET.zBot) / 2
+
+  /* asphalt */
+  roadMat = new THREE.MeshBasicMaterial({ color: 0x0e0f12 })
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(STREET.half * 2, len), roadMat)
+  road.rotation.x = -Math.PI / 2
+  road.position.set(0, 0, midZ)
+  city.add(road)
+
+  /* pavements, slightly raised */
+  const walkMat = new THREE.MeshBasicMaterial({ color: 0x1a1b1f })
+  for (const side of [-1, 1]){
+    const w = new THREE.Mesh(new THREE.PlaneGeometry(STREET.walk, len), walkMat)
+    w.rotation.x = -Math.PI / 2
+    w.position.set(side * (STREET.half + STREET.walk / 2), 0.02, midZ)
+    city.add(w)
+    /* kerb face */
+    const kerb = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14, 0.16, len),
+      new THREE.MeshBasicMaterial({ color: 0x24262a })
+    )
+    kerb.position.set(side * (STREET.half + 0.07), 0.06, midZ)
+    city.add(kerb)
+  }
+
+  /* markings, instanced: dashed centre line and solid edge lines */
+  const dashGeo = new THREE.PlaneGeometry(0.12, 1.5)
+  const dashMat = new THREE.MeshBasicMaterial({ color: 0xb9b3a4, transparent: true, opacity: 0.5 })
+  const dashCount = Math.floor(len / 4)
+  const dashes = new THREE.InstancedMesh(dashGeo, dashMat, dashCount)
+  const dummy = new THREE.Object3D()
+  let di = 0
+  for (let z = STREET.zTop - 2; z > STREET.zBot && di < dashCount; z -= 4){
+    dummy.position.set(0, 0.012, z)
+    dummy.rotation.set(-Math.PI / 2, 0, 0)
+    dummy.updateMatrix()
+    dashes.setMatrixAt(di++, dummy.matrix)
+  }
+  dashes.count = di
+  dashes.instanceMatrix.needsUpdate = true
+  city.add(dashes)
+
+  const edgeGeo = new THREE.PlaneGeometry(0.1, len)
+  const edgeMat = new THREE.MeshBasicMaterial({ color: 0x9c968a, transparent: true, opacity: 0.32 })
+  for (const side of [-1, 1]){
+    const e = new THREE.Mesh(edgeGeo, edgeMat)
+    e.rotation.x = -Math.PI / 2
+    e.position.set(side * (STREET.half - 0.35), 0.011, midZ)
+    city.add(e)
+  }
+
+  /* manhole covers, instanced */
+  const mhGeo = new THREE.CircleGeometry(0.32, 12)
+  const mhMat = new THREE.MeshBasicMaterial({ color: 0x1c1e22 })
+  const mhCount = 14
+  const manholes = new THREE.InstancedMesh(mhGeo, mhMat, mhCount)
+  for (let i = 0; i < mhCount; i++){
+    dummy.position.set((Math.random() - 0.5) * STREET.half * 1.5, 0.013, STREET.zTop - i * (len / mhCount))
+    dummy.rotation.set(-Math.PI / 2, 0, Math.random() * 3)
+    dummy.updateMatrix()
+    manholes.setMatrixAt(i, dummy.matrix)
+  }
+  manholes.instanceMatrix.needsUpdate = true
+  city.add(manholes)
+
+  /* utility poles and overhead wires — the signature of a Tokyo side street */
+  const poleMat = new THREE.MeshBasicMaterial({ color: 0x2b2a27 })
+  const armMat = new THREE.MeshBasicMaterial({ color: 0x33322e })
+  const poleGeo = new THREE.CylinderGeometry(0.075, 0.095, 8.4, 7)
+  const armGeo = new THREE.BoxGeometry(1.5, 0.07, 0.07)
+  const poleStep = 11
+  const poleCount = Math.floor(len / poleStep) * 2
+  const poles = new THREE.InstancedMesh(poleGeo, poleMat, poleCount)
+  const arms = new THREE.InstancedMesh(armGeo, armMat, poleCount * 2)
+  let pi = 0
+  for (let z = STREET.zTop - 4; z > STREET.zBot && pi < poleCount; z -= poleStep){
+    for (const side of [-1, 1]){
+      if (pi >= poleCount) break
+      const x = side * (STREET.half + STREET.walk - 0.28)
+      dummy.position.set(x, 4.2, z)
+      dummy.rotation.set(0, 0, 0)
+      dummy.updateMatrix()
+      poles.setMatrixAt(pi, dummy.matrix)
+      for (let a = 0; a < 2; a++){
+        dummy.position.set(x, 7.2 - a * 0.55, z)
+        dummy.rotation.set(0, Math.PI / 2, 0)
+        dummy.scale.set(1, 1, 1)
+        dummy.updateMatrix()
+        arms.setMatrixAt(pi * 2 + a, dummy.matrix)
+      }
+      pi++
+    }
+  }
+  poles.count = pi; poles.instanceMatrix.needsUpdate = true
+  arms.count = pi * 2; arms.instanceMatrix.needsUpdate = true
+  city.add(poles); city.add(arms)
+
+  /* the wires themselves: thin sagging spans between consecutive poles */
+  const wireMat = new THREE.MeshBasicMaterial({ color: 0x14151a })
+  const wireGeo = new THREE.BoxGeometry(0.022, 0.022, 1)
+  const spans = Math.max(1, Math.floor((STREET.zTop - STREET.zBot) / poleStep))
+  for (const side of [-1, 1]){
+    const x = side * (STREET.half + STREET.walk - 0.28)
+    for (let s = 0; s < spans; s++){
+      const z1 = STREET.zTop - 4 - s * poleStep
+      const z2 = z1 - poleStep
+      for (let a = 0; a < 3; a++){
+        const y = 7.2 - a * 0.55
+        const w = new THREE.Mesh(wireGeo, wireMat)
+        w.position.set(x + (a - 1) * 0.34, y - 0.06, (z1 + z2) / 2)
+        w.scale.z = Math.abs(z1 - z2) * 1.02
+        city.add(w)
+      }
+    }
+  }
+}
+buildStreet()
+
+/* air-conditioning units and balconies on the facades, instanced: the
+   clutter that actually reads as a Japanese building rather than a box */
+function buildFacadeDetail(){
+  const acGeo = new THREE.BoxGeometry(0.42, 0.3, 0.34)
+  const acMat = new THREE.MeshBasicMaterial({ color: 0x3a3b3e })
+  const acCap = new THREE.InstancedMesh(acGeo, acMat, 260)
+  const dummy2 = new THREE.Object3D()
+  let ai = 0
+  for (let z = 6; z > -148 && ai < 258; z -= 3.4){
+    for (const side of [-1, 1]){
+      if (Math.random() < 0.35) continue
+      const x = side * (7.6 + Math.random() * 1.6)
+      const y = 2.4 + Math.random() * 11
+      if (ai >= 258) break
+      dummy2.position.set(x, y, z)
+      dummy2.rotation.set(0, 0, 0)
+      dummy2.updateMatrix()
+      acCap.setMatrixAt(ai++, dummy2.matrix)
+    }
+  }
+  acCap.count = ai; acCap.instanceMatrix.needsUpdate = true
+  city.add(acCap)
+
+  /* narrow balconies on the residential stretch */
+  const balGeo = new THREE.BoxGeometry(0.5, 0.06, 2.1)
+  const balMat = new THREE.MeshBasicMaterial({ color: 0x2a2b2e })
+  const bals = new THREE.InstancedMesh(balGeo, balMat, 90)
+  let bi = 0
+  for (let z = -12; z > -140 && bi < 88; z -= 6.5){
+    for (const side of [-1, 1]){
+      if (Math.random() < 0.45 || bi >= 88) continue
+      const y = 3.4 + Math.random() * 7
+      dummy2.position.set(side * 7.2, y, z)
+      dummy2.rotation.set(0, 0, 0)
+      dummy2.updateMatrix()
+      bals.setMatrixAt(bi++, dummy2.matrix)
+    }
+  }
+  bals.count = bi; bals.instanceMatrix.needsUpdate = true
+  city.add(bals)
+}
+buildFacadeDetail()
 
 /* --------------------------- shrine / torii --------------------------- *
  * A small Inari shrine marker on a side street. Vermilion gate, a stone
@@ -2829,18 +3577,22 @@ const atmosphere = createAtmosphere({
   gradePass, IS_TOUCH, REDUCED
 })
 
-/* --- atmosphere control: manual modes + optional automatic cycle (§1,§37-40) --- */
+/* --- atmosphere control: two independent axes ---------------------------
+   Time of day and weather are chosen separately, so Day+Rain and
+   Night+Rain are genuinely different places rather than one tinted filter. */
 const atmosPanel = $('atmos-panel')
 const atmosToggle = $('atmos-toggle')
 const atmosNow = $('atmos-now')
 const atmosFoot = $('atmos-foot')
-const atmosOpts = $('atmos-opts')
+const atmosTimes = $('atmos-times')
+const atmosWeathers = $('atmos-weathers')
 const atmosAuto = $('atmos-auto')
 
 function atmosSync(){
-  const mode = atmosphere.state.mode
+  const a = atmosphere.state
   atmosNow.textContent = atmosphere.label()
-  atmosOpts.querySelectorAll('button').forEach(o => o.classList.toggle('on', o.dataset.a === mode))
+  atmosTimes.querySelectorAll('button').forEach(o => o.classList.toggle('on', o.dataset.t === a.time))
+  atmosWeathers.querySelectorAll('button').forEach(o => o.classList.toggle('on', o.dataset.w === a.weather))
 }
 
 atmosToggle.addEventListener('click', () => {
@@ -2850,16 +3602,16 @@ atmosToggle.addEventListener('click', () => {
   atmosToggle.setAttribute('aria-expanded', String(open))
 })
 
-atmosOpts.querySelectorAll('button').forEach(b => {
-  b.addEventListener('click', () => {
-    atmosphere.applyMode(b.dataset.a)
-    atmosSync()
-  })
+atmosTimes.querySelectorAll('button').forEach(b => {
+  b.addEventListener('click', () => atmosphere.set({ time: b.dataset.t }))
+})
+atmosWeathers.querySelectorAll('button').forEach(b => {
+  b.addEventListener('click', () => atmosphere.set({ weather: b.dataset.w }))
 })
 
 const AUTO_COPY = {
-  off: 'You choose the time of day.',
-  m5:  'Atmosphere moves every 5 minutes. Manual mode returns whenever you want.',
+  off: 'You choose the time of day and the weather.',
+  m5:  'Atmosphere moves every 5 minutes. Manual returns whenever you want.',
   m15: 'Atmosphere moves every 15 minutes.',
   m30: 'Atmosphere moves every 30 minutes.',
   m60: 'Atmosphere moves hourly.'
@@ -2876,7 +3628,16 @@ atmosAuto.querySelectorAll('button').forEach(b => {
 })
 
 atmosphere.onChange(atmosSync)
+atmosphere.set({ time: 'night', weather: 'rain' }, true)
 atmosSync()
+
+/* the district you are standing in changes how the same weather reads */
+function atmosDistrict(districtName){
+  if (!districtName) return
+  const key = districtName.toLowerCase().replace(/[^a-z]/g, '')
+  const match = atmosphere.districts().find(d => key.startsWith(d) || d.startsWith(key))
+  atmosphere.set({ district: match || 'shinjuku' })
+}
 
 function fmtClock(mins){
   const h = Math.floor(mins / 60) % 24
@@ -3134,6 +3895,8 @@ window.addEventListener('scroll', () => {
     TOUR.forEach(c => { if (p >= c.at - 0.001) cur = c })
     const dn = $('district-name')
     if (dn.textContent !== cur.district) dn.textContent = cur.district
+    /* the district you are in changes how this weather reads */
+    if (cur.district !== lastDistrict){ lastDistrict = cur.district; atmosDistrict(cur.district) }
     checkMoment(p)
     CITY_MARKS.forEach(m => {
       if (m.passed) return
@@ -3205,6 +3968,7 @@ function applyCamera(){
 }
 
 let miniRedraw = 0
+let bMatR = 1, bMatG = 0.9, bMatB = 0.78
 let lastFrame = performance.now()
 
 function loop(now){
@@ -3233,6 +3997,7 @@ function loop(now){
   trafficLight.g.material.color.setHex(state.light === 'green' ? 0x4a8a63 : 0x1e3226)
 
   const atm = atmosphere.state.cur
+  const timeIsNight = atm.light < 0.62
   cars.forEach(c => {
     const u = c.userData
     let nz = c.position.z + u.dir * u.speed * 0.55 * atm.traffic * dt
@@ -3318,13 +4083,38 @@ function loop(now){
   })
 
   signs.forEach(s => {
-    if (s.userData.flickerT > 0){
-      s.userData.flickerT -= dt
-      s.material.opacity = Math.random() < 0.25 ? 0.3 : s.userData.baseOpacity
+    const u = s.userData
+    /* signage brightness follows the time of day and the weather */
+    const want = u.baseOpacity * (0.25 + atm.signs * 0.75)
+    if (u.flickerT > 0){
+      u.flickerT -= dt
+      s.material.opacity = Math.random() < 0.25 ? want * 0.32 : want
     } else {
-      s.material.opacity = lerp(s.material.opacity, s.userData.baseOpacity, 0.08)
+      s.material.opacity = lerp(s.material.opacity, want, 0.08)
     }
+    /* and its reflection on the ground fades in when it is wet */
+    if (u.refl) u.refl.material.opacity = 0.06 + atm.wet * 0.2 * atm.signs
   })
+
+  /* building windows: the texture is mostly dark with bright panes, so a warm
+     multiply at night makes them glow and a cool one by day reads as glass */
+  const winK = clamp(atm.windows, 0, 1.3)
+  const warmK = 0.55 + winK * 0.45
+  bMatR = lerp(bMatR, timeIsNight ? 1 : 0.72, 0.05)
+  bMatG = lerp(bMatG, timeIsNight ? 0.86 : 0.76, 0.05)
+  bMatB = lerp(bMatB, timeIsNight ? 0.68 + winK * 0.1 : 0.84, 0.05)
+  bMats.forEach(m => m.color.setRGB(bMatR * warmK * 0.62, bMatG * warmK * 0.62, bMatB * warmK * 0.62))
+
+  /* wet ground: puddles deepen and the road picks up a sheen */
+  puddles.forEach(p => {
+    const want = 0.05 + atm.wet * 0.5
+    p.material.opacity = lerp(p.material.opacity, want, 0.05)
+    p.visible = atm.wet > 0.12
+  })
+  if (roadMat){
+    const sheen = atm.wet * (timeIsNight ? 0.5 : 0.28)
+    roadMat.color.setRGB(0.055 + sheen * 0.1, 0.058 + sheen * 0.11, 0.068 + sheen * 0.14)
+  }
 
   lanterns.forEach(l => { l.material.opacity = 0.78 + Math.sin(t * 7 + l.userData.phase) * 0.12 })
 

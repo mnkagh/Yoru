@@ -19,6 +19,14 @@
 const results = []
 const rec = (name, pass, detail) => results.push({ name, pass: !!pass, detail: detail === undefined ? '' : String(detail) })
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+const q = new URLSearchParams(location.search)
+/* a scenario can ask for a phone-sized viewport so touch layout is exercised */
+const VP = q.get('vp')
+if (VP){
+  const [vw, vh] = VP.split('x').map(Number)
+  const f = document.getElementById('f')
+  f.style.width = vw + 'px'; f.style.height = vh + 'px'
+}
 
 function render(){
   document.getElementById('out').innerHTML =
@@ -44,7 +52,7 @@ addEventListener('load', async () => {
     if (!Y()){ rec('app booted', false, 'window.__yoru never appeared'); render(); return }
     rec('app booted', true)
 
-    const scenario = new URLSearchParams(location.search).get('s') || 'all'
+    const scenario = q.get('s') || 'all'
     const all = SCENARIOS
     const run = n => all[n]({ w, d, Y, $, rec, sleep: sleep_ })
 

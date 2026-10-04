@@ -1,60 +1,144 @@
 import * as THREE from 'three'
 
-/* Atmosphere engine.
-   Transitions are TIME-BASED, not exponential, so a change always takes the
-   same cinematic duration (§2, §39) instead of snapping or drifting forever.
-   Each mode drives sky, fog, exposure, grade tint, sun direction, stars, moon,
-   rain, snow, petals, and the density of street life. */
+/* ==========================================================================
+   ATMOSPHERE
+   Two independent axes, exactly as the visitor thinks about them:
 
-const PAL = {
-  night: {
-    label: 'Night',
-    bg: 0x0d0c11, fog: 0x0d0c11, fogDensity: 0.0080,
-    tint: [1.00, 1.00, 1.00], exposure: 1.00,
-    light: 0.30, sun: [-40, 60, 20], amb: 0.10,
-    snow: 0, petal: 0, stars: 1.0, moon: 1.0, wet: 1.0,
-    pedDensity: 1.00, traffic: 1.00, signs: 1.00, windows: 1.00
+     TIME OF DAY   day · sunset · night
+     WEATHER       sunny · rain · snow · spring
+
+   Everything visual is DERIVED from those two plus the current district and
+   the transition progress. There is exactly one authority for sky, fog,
+   exposure, lighting and particles, so nothing can fight anything else.
+
+   Colours are interpolated component-wise in RGB. Interpolating packed hex
+   integers across channels produces nonsense halfway through a transition,
+   which is what caused the colour flashes and the over-bright mid-states.
+   ========================================================================== */
+
+const TIMES = ['day', 'sunset', 'night']
+const WEATHERS = ['sunny', 'rain', 'snow', 'spring']
+
+/* --- time of day ------------------------------------------------------- */
+const TIME = {
+  day: {
+    label: 'Day',
+    bg: [150, 172, 191], fog: [163, 183, 199], fogDensity: 0.0068,
+    light: 1.05, sun: [-30, 78, 34], amb: 0.38,
+    exposure: 1.06, tint: [1.05, 1.04, 1.01],
+    stars: 0, moon: 0, windows: 0.18, signs: 0.30, pedDensity: 1.22, traffic: 1.12
   },
   sunset: {
     label: 'Sunset',
-    bg: 0x3a2a33, fog: 0x54373c, fogDensity: 0.0105,
-    tint: [1.10, 1.01, 0.95], exposure: 1.06,
-    light: 0.55, sun: [-58, 12, 26], amb: 0.16,
-    snow: 0, petal: 0, stars: 0.35, moon: 0.35, wet: 0.7,
-    pedDensity: 1.05, traffic: 1.05, signs: 0.95, windows: 0.85
+    bg: [74, 58, 68], fog: [92, 62, 66], fogDensity: 0.0094,
+    light: 0.52, sun: [-62, 12, 26], amb: 0.17,
+    exposure: 1.00, tint: [1.10, 0.99, 0.93],
+    stars: 0.28, moon: 0.30, windows: 0.72, signs: 0.88, pedDensity: 1.05, traffic: 1.05
   },
-  day: {
-    label: 'Day',
-    bg: 0x8fa6b8, fog: 0x9db2c2, fogDensity: 0.0092,
-    tint: [1.14, 1.11, 1.03], exposure: 1.20,
-    light: 1.15, sun: [-30, 78, 34], amb: 0.42,
-    snow: 0, petal: 0, stars: 0, moon: 0, wet: 0.18,
-    pedDensity: 1.25, traffic: 1.15, signs: 0.40, windows: 0.22
-  },
-  spring: {
-    label: 'Spring',
-    bg: 0x2f2b34, fog: 0x453d47, fogDensity: 0.0086,
-    tint: [1.08, 1.00, 1.05], exposure: 1.10,
-    light: 0.68, sun: [-44, 58, 24], amb: 0.22,
-    snow: 0, petal: 1, stars: 0.30, moon: 0.45, wet: 0.62,
-    pedDensity: 1.12, traffic: 0.92, signs: 0.78, windows: 0.70
-  },
-  snow: {
-    label: 'Snow',
-    bg: 0x1b2029, fog: 0x252c37, fogDensity: 0.0122,
-    tint: [0.93, 0.99, 1.14], exposure: 1.06,
-    light: 0.46, sun: [-40, 66, 22], amb: 0.20,
-    snow: 1, petal: 0, stars: 0.15, moon: 0.5, wet: 0.85,
-    pedDensity: 0.72, traffic: 0.62, signs: 1.18, windows: 1.30
+  night: {
+    label: 'Night',
+    bg: [13, 13, 17], fog: [13, 13, 17], fogDensity: 0.0082,
+    light: 0.24, sun: [-40, 60, 20], amb: 0.085,
+    exposure: 0.96, tint: [1.00, 1.00, 1.00],
+    stars: 1.0, moon: 0.95, windows: 1.0, signs: 0.92, pedDensity: 1.0, traffic: 1.0
   }
 }
 
-/* Logical progression for AUTO. Never jumps day -> snow (§8). */
-const AUTO_CYCLE = ['day', 'sunset', 'night', 'night', 'spring', 'sunset', 'night', 'snow', 'night', 'sunset', 'day', 'spring']
+/* --- weather ----------------------------------------------------------- */
+const WEATHER = {
+  sunny:  { rain: 0,    wet: 0.10, snow: 0, petal: 0, fogMul: 1.00, lightMul: 1.00, tint: [ 0.00,  0.00,  0.00], shade:  0.00, coat: 0.00 },
+  rain:   { rain: 1,    wet: 1.00, snow: 0, petal: 0, fogMul: 1.42, lightMul: 0.60, tint: [-0.05, -0.04,  0.00], shade: -26,   coat: 1.00 },
+  snow:   { rain: 0,    wet: 0.52, snow: 1, petal: 0, fogMul: 1.30, lightMul: 0.80, tint: [-0.05,  0.00,  0.07], shade: -10,   coat: 1.00 },
+  spring: { rain: 0,    wet: 0.42, snow: 0, petal: 1, fogMul: 1.06, lightMul: 1.00, tint: [ 0.03, -0.01,  0.03], shade:  -4,   coat: 0.00 }
+}
+
+/* --- districts change how a given time+weather actually looks --------- */
+const DISTRICT = {
+  shinjuku:    { signs: 1.18, windows: 1.10, ped: 1.14, name: 'Shinjuku' },
+  nishishinjuku:{ signs: 1.10, windows: 1.05, ped: 1.05, name: 'Nishi-Shinjuku' },
+  shibuya:     { signs: 1.22, windows: 1.06, ped: 1.20, name: 'Shibuya' },
+  harajuku:    { signs: 0.86, windows: 1.00, ped: 1.00, name: 'Harajuku' },
+  yoyogi:      { signs: 0.62, windows: 0.92, ped: 0.92, name: 'Yoyogi' },
+  asakusa:     { signs: 0.78, windows: 0.96, ped: 0.82, name: 'Asakusa', warm: 0.16 },
+  ginza:       { signs: 0.72, windows: 1.04, ped: 0.88, name: 'Ginza', clean: 0.20 },
+  tsukiji:     { signs: 0.66, windows: 1.02, ped: 1.06, name: 'Tsukiji' },
+  nakameguro:  { signs: 0.48, windows: 0.90, ped: 0.74, name: 'Nakameguro' },
+  akihabara:   { signs: 1.30, windows: 1.08, ped: 1.16, name: 'Akihabara' },
+  roppongi:    { signs: 0.92, windows: 1.00, ped: 0.96, name: 'Roppongi' },
+  rooftop:     { signs: 0.34, windows: 0.80, ped: 0.30, name: 'Tokyo Rooftop' }
+}
+
+/* AUTO walks a believable progression rather than picking at random. */
+const AUTO_PLAN = [
+  { time: 'day',     weather: 'sunny'  },
+  { time: 'day',     weather: 'spring' },
+  { time: 'sunset',  weather: 'sunny'  },
+  { time: 'sunset',  weather: 'rain'   },
+  { time: 'night',   weather: 'rain'   },
+  { time: 'night',   weather: 'sunny'  },
+  { time: 'night',   weather: 'snow'   },
+  { time: 'night',   weather: 'spring' }
+]
 const AUTO_MS = { off: 0, m5: 300000, m15: 900000, m30: 1800000, m60: 3600000 }
 const TRANSITION_SEC = 3.4
 
 const lerp = (a, b, t) => a + (b - a) * t
+
+/* the single derivation: time x weather x district -> one visual state */
+function derive(time, weather, districtKey){
+  const t = TIME[time] || TIME.night
+  const w = WEATHER[weather] || WEATHER.sunny
+  const d = DISTRICT[districtKey] || DISTRICT.shinjuku
+
+  /* weather darkens and cools the sky before anything else happens */
+  const shade = w.shade
+  const bg = [
+    clamp255(t.bg[0] + shade),
+    clamp255(t.bg[1] + shade * 0.94),
+    clamp255(t.bg[2] + shade * (w.rain ? 0.8 : 1.05))
+  ]
+  const fog = [
+    clamp255(t.fog[0] + shade * 1.15),
+    clamp255(t.fog[1] + shade * 1.05),
+    clamp255(t.fog[2] + shade * 0.95)
+  ]
+
+  const isNightish = time === 'night' || time === 'sunset'
+  /* soft ceilings rather than hard clamps: a hard clamp flattened the
+     difference between a clear night and a snowy one, which is exactly the
+     distinction these numbers exist to express */
+  const signs = Math.min(1.25, t.signs * d.signs * (isNightish ? 1 : 0.85) + w.rain * 0.10)
+  const windows = Math.min(1.30, t.windows * d.windows + (weather === 'snow' ? 0.28 : 0))
+
+  return {
+    label: t.label + (weather === 'sunny' ? '' : ' · ' + weather.charAt(0).toUpperCase() + weather.slice(1)),
+    bg, fog,
+    fogDensity: t.fogDensity * w.fogMul,
+    light: t.light * w.lightMul,
+    sun: t.sun,
+    amb: t.amb * (w.rain ? 1.25 : 1),
+    exposure: t.exposure * (w.rain ? 0.97 : 1) * (weather === 'snow' ? 1.02 : 1),
+    tint: [
+      t.tint[0] + w.tint[0],
+      t.tint[1] + w.tint[1],
+      t.tint[2] + w.tint[2]
+    ],
+    stars: t.stars * (weather === 'rain' ? 0 : 1) * (weather === 'snow' ? 0.25 : 1),
+    moon: t.moon * (weather === 'rain' ? 0 : 1),
+    rain: w.rain,
+    wet: w.wet * (isNightish ? 1 : 0.8),
+    snow: w.snow,
+    petal: w.petal,
+    signs,
+    windows,
+    pedDensity: t.pedDensity * d.ped * (weather === 'rain' ? 0.72 : weather === 'snow' ? 0.68 : 1),
+    traffic: t.traffic * (weather === 'rain' ? 0.8 : weather === 'snow' ? 0.7 : 1),
+    coat: w.coat,
+    warm: d.warm || 0,
+    clean: d.clean || 0
+  }
+}
+function clamp255(v){ return v < 0 ? 0 : v > 255 ? 255 : Math.round(v) }
 
 export function createAtmosphere(ctx){
   const { scene, camera, city, rain, rainMat } = ctx
@@ -62,20 +146,17 @@ export function createAtmosphere(ctx){
   const isTouch = ctx.IS_TOUCH
   const reduced = ctx.REDUCED
 
-  const cur = {}
-  const from = {}
-  const to = {}
+  let time = 'night'
+  let weather = 'rain'
+  let district = 'shinjuku'
+
+  const cur = derive(time, weather, district)
+  const from = JSON.parse(JSON.stringify(cur))
   let tween = 1
   let tweenDur = TRANSITION_SEC
 
-  const keys = Object.keys(PAL.night)
-  function snap(){
-    keys.forEach(k => { cur[k] = Array.isArray(PAL.night[k]) ? PAL.night[k].slice() : PAL.night[k] })
-  }
-  snap()
-
-  /* ---------------- stars + moon ---------------- */
-  const starCount = reduced ? 90 : isTouch ? 260 : 620
+  /* ---------------- stars ---------------- */
+  const starCount = reduced ? 80 : isTouch ? 240 : 560
   const starGeo = new THREE.BufferGeometry()
   const starPos = new Float32Array(starCount * 3)
   const starSeed = new Float32Array(starCount)
@@ -89,24 +170,22 @@ export function createAtmosphere(ctx){
   }
   starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3))
   const starMat = new THREE.PointsMaterial({
-    color: 0xf4efe6, size: 0.55, transparent: true,
-    opacity: 0, depthWrite: false, sizeAttenuation: true
+    color: 0xf4efe6, size: 0.5, transparent: true, opacity: 0, depthWrite: false
   })
   const stars = new THREE.Points(starGeo, starMat)
   stars.frustumCulled = false
   scene.add(stars)
 
-  /* moon: soft disc, fixed in the sky, never rotates with input (§5) */
-  const moonMat = new THREE.SpriteMaterial({
-    map: makeMoonTexture(), transparent: true, opacity: 0, depthWrite: false
-  })
-  const moon = new THREE.Sprite(moonMat)
+  /* ---------------- moon ---------------- */
+  const moon = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: moonTexture(), transparent: true, opacity: 0, depthWrite: false
+  }))
   moon.position.set(52, 46, -96)
   moon.scale.setScalar(9)
   scene.add(moon)
 
   /* ---------------- precipitation ---------------- */
-  const fallCount = reduced ? 90 : isTouch ? 260 : 620
+  const fallCount = reduced ? 80 : isTouch ? 240 : 560
   const fallGeo = new THREE.BufferGeometry()
   const fallPos = new Float32Array(fallCount * 3)
   const fallSeed = new Float32Array(fallCount)
@@ -118,10 +197,10 @@ export function createAtmosphere(ctx){
   }
   fallGeo.setAttribute('position', new THREE.BufferAttribute(fallPos, 3))
   const snowMat = new THREE.PointsMaterial({
-    color: 0xf6f4ef, size: 0.115, transparent: true, opacity: 0, depthWrite: false
+    color: 0xf2f4f6, size: 0.105, transparent: true, opacity: 0, depthWrite: false
   })
   const petalMat = new THREE.PointsMaterial({
-    color: 0xf0c3cb, size: 0.095, transparent: true, opacity: 0, depthWrite: false
+    color: 0xefc2cb, size: 0.09, transparent: true, opacity: 0, depthWrite: false
   })
   const snow = new THREE.Points(fallGeo, snowMat)
   const petalGeo = fallGeo.clone()
@@ -129,31 +208,32 @@ export function createAtmosphere(ctx){
   snow.frustumCulled = petals.frustumCulled = false
   camera.add(snow); camera.add(petals)
 
-  /* ---------------- sakura ---------------- */
+  /* ---------------- sakura, only where they belong ---------------- */
   const cherry = []
-  for (let i = 0; i < 7; i++){
+  const CHERRY_Z = [-24, -40, -58, -76, -92, -112, -132]
+  CHERRY_Z.forEach((z, i) => {
     const g = new THREE.Group()
     const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.11, 0.16, 2.4, 6),
-      new THREE.MeshBasicMaterial({ color: 0x3a2c26 })
+      new THREE.CylinderGeometry(0.1, 0.15, 2.3, 6),
+      new THREE.MeshBasicMaterial({ color: 0x3b2f28 })
     )
-    trunk.position.y = 1.2
+    trunk.position.y = 1.15
     g.add(trunk)
-    const blossomMat = new THREE.MeshBasicMaterial({ color: 0xe4b3bf, transparent: true, opacity: 0 })
+    const blossomMat = new THREE.MeshBasicMaterial({ color: 0xe2b1bd, transparent: true, opacity: 0 })
     for (let b = 0; b < 3; b++){
-      const canopy = new THREE.Mesh(new THREE.SphereGeometry(1.05, 8, 6), blossomMat)
-      canopy.position.set((Math.random()-0.5)*0.8, 2.5 + b*0.42, (Math.random()-0.5)*0.8)
-      canopy.scale.y = 0.72
+      const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.95, 8, 6), blossomMat)
+      canopy.position.set((Math.random()-0.5)*0.7, 2.4 + b*0.4, (Math.random()-0.5)*0.7)
+      canopy.scale.y = 0.7
       g.add(canopy)
     }
     const side = i % 2 === 0 ? 1 : -1
-    g.position.set(side * (5.6 + (i % 3) * 0.6), 0, -18 - i * 12 - Math.random() * 4)
-    g.userData = { mat: blossomMat, phase: Math.random() * 6.28, burst: 0 }
+    g.position.set(side * (5.4 + (i % 3) * 0.5), 0, z)
+    g.userData = { mat: blossomMat, phase: Math.random() * 6.28 }
     city.add(g)
     cherry.push(g)
-  }
+  })
 
-  const sun = new THREE.DirectionalLight(0xffffff, 0.4)
+  const sun = new THREE.DirectionalLight(0xffffff, 0.3)
   scene.add(sun)
   const amb = new THREE.HemisphereLight(0xbfd4e8, 0x1a1714, 0.3)
   scene.add(amb)
@@ -163,60 +243,68 @@ export function createAtmosphere(ctx){
   const tintV = new THREE.Vector3()
   const sunPos = new THREE.Vector3()
 
-  let mode = 'night'
-  let autoEvery = 'off'
+  let autoKey = 'off'
   let autoTimer = null
-  let autoIdx = 0
-  let listeners = []
-  let petalBoost = 0
+  let autoIdx = AUTO_PLAN.findIndex(p => p.time === 'night' && p.weather === 'rain')
+  if (autoIdx < 0) autoIdx = 0
+  const listeners = []
 
-  function targetPal(name){ return PAL[name] || PAL.night }
+  function target(){ return derive(time, weather, district) }
 
-  function applyMode(name, opts){
-    opts = opts || {}
-    if (!PAL[name]) return
-    const changed = name !== mode
-    mode = name
-    keys.forEach(k => { from[k] = Array.isArray(cur[k]) ? cur[k].slice() : cur[k] })
-    to.__pal = PAL[name]
-    tween = 0
-    tweenDur = opts.instant ? 0.001 : TRANSITION_SEC
-    if (opts.instant) { tween = 1 }
-    if (changed) listeners.forEach(fn => fn(name))
+  /* One setter. Changing anything mid-transition re-bases from the CURRENT
+     visual state, so transitions never stack and never snap back. */
+  function set(next, instant){
+    next = next || {}
+    const nt = TIMES.indexOf(next.time) > -1 ? next.time : time
+    const nw = WEATHERS.indexOf(next.weather) > -1 ? next.weather : weather
+    const nd = next.district || district
+    const changed = nt !== time || nw !== weather || nd !== district
+    time = nt; weather = nw; district = nd
+    /* snapshot where we are RIGHT NOW as the new starting point */
+    for (const k in cur) from[k] = Array.isArray(cur[k]) ? cur[k].slice() : cur[k]
+    if (instant){
+      /* snap straight to the target; skipping the tween must not skip the copy */
+      const g = target()
+      for (const k in cur){
+        if (Array.isArray(cur[k]) && Array.isArray(g[k])) cur[k] = g[k].slice()
+        else cur[k] = g[k]
+      }
+      tween = 1
+      tweenDur = TRANSITION_SEC
+    } else {
+      tweenDur = TRANSITION_SEC
+      tween = 0
+    }
+    if (changed) listeners.forEach(fn => fn(time, weather, district))
   }
 
   function autoSet(key){
-    autoEvery = key
-    if (autoTimer) { clearInterval(autoTimer); autoTimer = null }
+    autoKey = key
+    if (autoTimer){ clearInterval(autoTimer); autoTimer = null }
     const ms = AUTO_MS[key]
-    if (!ms){ applyMode('night'); autoIdx = AUTO_CYCLE.indexOf('night'); return }
+    if (!ms) return
     autoTimer = setInterval(() => {
-      autoIdx = (autoIdx + 1) % AUTO_CYCLE.length
-      applyMode(AUTO_CYCLE[autoIdx])
+      autoIdx = (autoIdx + 1) % AUTO_PLAN.length
+      set(AUTO_PLAN[autoIdx])
     }, ms)
-    listeners.forEach(fn => fn(mode))
   }
 
-  function advancePetal(amount){ petalBoost = Math.min(1, petalBoost + amount) }
-
-  function update(dt, time){
-    /* eased, time-boxed transition */
+  function update(dt, t){
     if (tween < 1){
       tween = Math.min(1, tween + dt / tweenDur)
-      const g = targetPal(mode)
+      const g = target()
       const e = tween < 0.5 ? 4*tween*tween*tween : 1 - Math.pow(-2*tween + 2, 3) / 2
-      keys.forEach(k => {
-        if (Array.isArray(g[k])){
-          if (!cur[k]) cur[k] = g[k].slice()
+      for (const k in cur){
+        if (Array.isArray(cur[k]) && Array.isArray(from[k]) && Array.isArray(g[k])){
           for (let i = 0; i < g[k].length; i++) cur[k][i] = lerp(from[k][i], g[k][i], e)
-        } else {
+        } else if (!Array.isArray(cur[k])){
           cur[k] = lerp(from[k], g[k], e)
         }
-      })
+      }
     }
 
-    bgCol.setHex(0).setHex(cur.bg | 0)
-    fogCol.setHex(0).setHex(cur.fog | 0)
+    bgCol.setRGB(cur.bg[0]/255, cur.bg[1]/255, cur.bg[2]/255)
+    fogCol.setRGB(cur.fog[0]/255, cur.fog[1]/255, cur.fog[2]/255)
     scene.background = bgCol
     if (scene.fog){ scene.fog.color = fogCol; scene.fog.density = cur.fogDensity }
 
@@ -229,103 +317,106 @@ export function createAtmosphere(ctx){
     sun.position.copy(sunPos.set(cur.sun[0], cur.sun[1], cur.sun[2]))
     amb.intensity = cur.amb
 
-    /* stars + moon fade in gradually, never on mouse move */
-    starMat.opacity = cur.stars * 0.5
+    starMat.opacity = cur.stars * 0.42
     stars.visible = cur.stars > 0.02
     if (stars.visible && !reduced){
       const sp = starGeo.attributes.position
-      for (let i = 0; i < starCount; i++){
-        sp.setY(i, sp.getY(i) + Math.sin(time * 0.6 + starSeed[i]) * 0.0006)
-      }
+      for (let i = 0; i < starCount; i++) sp.setY(i, sp.getY(i) + Math.sin(t * 0.6 + starSeed[i]) * 0.0006)
       sp.needsUpdate = true
     }
-    moonMat.opacity = cur.moon * 0.85
+    moon.material.opacity = cur.moon * 0.8
     moon.visible = cur.moon > 0.02
 
-    /* precipitation */
-    snowMat.opacity = cur.snow * 0.8
+    /* snow */
+    snowMat.opacity = cur.snow * 0.72
     snow.visible = cur.snow > 0.02
     if (snow.visible){
       const sp = fallGeo.attributes.position
       for (let i = 0; i < fallCount; i++){
-        let y = sp.getY(i) - (0.85 + fallSeed[i] * 0.6) * dt
-        let x = sp.getX(i) + Math.sin(time * 0.5 + fallSeed[i] * 8) * 0.5 * dt
+        let y = sp.getY(i) - (0.8 + fallSeed[i] * 0.55) * dt
+        let x = sp.getX(i) + Math.sin(t * 0.5 + fallSeed[i] * 8) * 0.45 * dt
         if (y < -1){ y = 24; x = (Math.random() - 0.5) * 40 }
         sp.setY(i, y); sp.setX(i, x)
       }
       sp.needsUpdate = true
     }
 
-    /* petals: subtle base fall, denser right beside a tree (§3) */
-    const nearTree = nearestCherryDist(camera.position)
+    /* petals, denser beside a tree */
+    const nearTree = nearestTree(camera.position)
     const local = Math.max(0, 1 - nearTree / 9)
-    const density = Math.min(1, cur.petal + petalBoost)
-    petalBoost = Math.max(0, petalBoost - dt * 0.55)
-    petalMat.opacity = density * (0.34 + local * 0.4)
-    petals.visible = density > 0.02
+    petalMat.opacity = cur.petal * (0.3 + local * 0.36)
+    petals.visible = cur.petal > 0.02
     if (petals.visible){
       const pg = petalGeo.attributes.position
       for (let i = 0; i < fallCount; i++){
-        const drift = 0.34 + local * 0.5
-        let y = pg.getY(i) - (0.4 + fallSeed[i] * 0.35) * dt
-        let x = pg.getX(i) + Math.sin(time * 0.9 + fallSeed[i] * 9) * drift * dt
+        let y = pg.getY(i) - (0.38 + fallSeed[i] * 0.32) * dt
+        let x = pg.getX(i) + Math.sin(t * 0.9 + fallSeed[i] * 9) * (0.3 + local * 0.45) * dt
         if (y < -1){ y = 22; x = (Math.random() - 0.5) * 38 }
         pg.setY(i, y); pg.setX(i, x)
       }
       pg.needsUpdate = true
     }
 
-    /* rain thins in daylight, keeps its presence at night */
-    const rainWant = mode === 'night' ? 0.34 : mode === 'sunset' ? 0.24 : mode === 'spring' ? 0.12 : mode === 'snow' ? 0.08 : 0.05
-    rainMat.opacity = lerp(rainMat.opacity, rainWant, 0.02)
-    rain.visible = rainMat.opacity > 0.02
+    /* rain is owned here and nowhere else */
+    rainMat.opacity = cur.rain * 0.30
+    rain.visible = cur.rain > 0.02
 
-    /* sakura: blossom fades in, and a tree you are close to releases petals */
+    /* sakura */
     cherry.forEach(tr => {
       const u = tr.userData
-      if (!reduced) tr.rotation.z = Math.sin(time * 0.5 + u.phase) * 0.018
-      u.mat.opacity = cur.petal * 0.9
+      if (!reduced) tr.rotation.z = Math.sin(t * 0.5 + u.phase) * 0.016
+      u.mat.opacity = cur.petal * 0.88
       tr.visible = cur.petal > 0.02
-      const d = tr.position.distanceTo(camera.position)
-      if (d < 7 && cur.petal > 0.3) u.burst = Math.min(1, u.burst + dt * 1.4)
-      else u.burst = Math.max(0, u.burst - dt * 0.5)
     })
   }
 
-  function nearestCherryDist(pos){
+  function nearestTree(pos){
     let best = 1e9
-    for (const tr of cherry){
-      const d = tr.position.distanceTo(pos)
-      if (d < best) best = d
-    }
+    for (const tr of cherry){ const d = tr.position.distanceTo(pos); if (d < best) best = d }
     return best
   }
 
   return {
-    state: { get mode(){ return mode }, cur },
-    applyMode,
-    autoSet,
-    advancePetal,
+    state: {
+      cur,
+      get mode(){ return cur.label },
+      get time(){ return time },
+      get weather(){ return weather },
+      get district(){ return district }
+    },
+    set,
     update,
+    autoSet,
     onChange(fn){ listeners.push(fn) },
     transitioning(){ return tween < 1 },
-    label(){ return targetPal(mode).label },
-    modes: Object.keys(PAL),
-    autoKey(){ return autoEvery }
+    target,
+    times(){ return TIMES.slice() },
+    weathers(){ return WEATHERS.slice() },
+    districts(){ return Object.keys(DISTRICT) },
+    districtName(){ return (DISTRICT[district] || {}).name || district },
+    label(){ return cur.label },
+    autoKey(){ return autoKey },
+    /* kept for anything still calling the old single-axis helper */
+    applyMode(name, opts){
+      const map = { day:['day','sunny'], sunset:['sunset','sunny'], night:['night','rain'],
+                    spring:['day','spring'], snow:['day','snow'], rain:['night','rain'] }
+      const m = map[name] || ['night','rain']
+      set({ time: m[0], weather: m[1] }, opts && opts.instant)
+    },
+    modes(){ return TIMES.concat(WEATHERS) }
   }
 }
 
-function makeMoonTexture(){
+function moonTexture(){
   const c = document.createElement('canvas')
   c.width = c.height = 128
   const x = c.getContext('2d')
   const g = x.createRadialGradient(64, 64, 4, 64, 64, 62)
   g.addColorStop(0, 'rgba(255,250,238,1)')
-  g.addColorStop(0.45, 'rgba(246,238,220,0.85)')
-  g.addColorStop(0.72, 'rgba(220,210,190,0.22)')
+  g.addColorStop(0.45, 'rgba(246,238,220,0.8)')
+  g.addColorStop(0.72, 'rgba(220,210,190,0.2)')
   g.addColorStop(1, 'rgba(200,190,170,0)')
   x.fillStyle = g
   x.beginPath(); x.arc(64, 64, 62, 0, Math.PI * 2); x.fill()
-  const tex = new THREE.CanvasTexture(c)
-  return tex
+  return new THREE.CanvasTexture(c)
 }
