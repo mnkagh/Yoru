@@ -456,17 +456,25 @@ function spawnRipple(x, z){
 
 const cars = []
 const carGeo = new THREE.BoxGeometry(1.7, 0.55, 0.75)
+const vanGeo = new THREE.BoxGeometry(1.9, 0.95, 0.8)
 for(let i=0;i<14;i++){
   const dir = i%2===0 ? 1 : -1
-  const mat = new THREE.MeshBasicMaterial({ color: dir>0 ? 0x1c2434 : 0x1c2434 })
-  const c = new THREE.Mesh(carGeo, mat)
+  const kind = i % 5 === 3 ? 'taxi' : (i % 5 === 4 ? 'van' : 'car')
+  const mat = new THREE.MeshBasicMaterial({ color: kind === 'taxi' ? 0x2a2a1c : 0x1c2434 })
+  const c = new THREE.Mesh(kind === 'van' ? vanGeo : carGeo, mat)
   const lane = dir>0 ? 7.6 : -7.6
-  c.position.set((Math.random()-0.5)*24, 0.4, -12 - i*7 - Math.random()*4)
+  c.position.set((Math.random()-0.5)*24, kind === 'van' ? 0.6 : 0.4, -12 - i*7 - Math.random()*4)
   const head = new THREE.Mesh(new THREE.PlaneGeometry(0.5,0.3), new THREE.MeshBasicMaterial({ color: dir>0 ? 0xfff6d8 : 0xff3b30 }))
   head.position.set(dir>0?0.9:-0.9, 0, 0)
   head.rotation.y = dir>0 ? Math.PI/2 : -Math.PI/2
   c.add(head)
-  c.userData = { dir, speed: 5+Math.random()*5 }
+  if (kind === 'taxi'){
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.2),
+      new THREE.MeshBasicMaterial({ color: 0xffe95a }))
+    roof.position.set(0, 0.36, 0)
+    c.add(roof)
+  }
+  c.userData = { dir, speed: 5+Math.random()*5, headMat: head.material, headBase: head.material.color.clone(), isHead: dir > 0 }
   city.add(c)
   cars.push(c)
 }
@@ -514,6 +522,9 @@ function makePed(zone){
   body.userData = { type:'ped', ref: g }
   head.userData = { type:'ped', ref: g }
   g.position.set(zone.x[0]+Math.random()*(zone.x[1]-zone.x[0]), 0, zone.z[0]+Math.random()*(zone.z[1]-zone.z[0]))
+  /* archetype variation: height and build differ, so no two silhouettes match */
+  const ps = 0.9 + Math.random() * 0.2
+  g.scale.set(ps * (0.94 + Math.random() * 0.12), ps, ps)
   g.userData = { head, zone, dir: Math.random()<0.5?1:-1, speed: 0.35+Math.random()*0.55, lookT: 0, bob: Math.random()*10, type:'ped' }
   city.add(g)
   peds.push(g)
@@ -869,6 +880,36 @@ function makePerson(x, z, coat, accent, facing){
   return g
 }
 
+/* NPC visual identity: interactive characters carry a role prop so they
+   read as people with jobs, not generic figures. Static geometry —
+   the head/turn animation already gives them life. */
+function addProp(person, kind){
+  const m = person.mesh
+  if (!m) return
+  if (kind === 'camera'){
+    const cam = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.12),
+      new THREE.MeshBasicMaterial({ color: 0x0c0e12 }))
+    cam.position.set(0, 1.32, 0.24)
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.1, 8),
+      new THREE.MeshBasicMaterial({ color: 0x1c2434 }))
+    lens.rotation.x = Math.PI / 2
+    lens.position.set(0, 1.32, 0.33)
+    m.add(cam, lens)
+    m.userData.prop = cam
+  } else if (kind === 'toque'){
+    const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.16, 10),
+      new THREE.MeshBasicMaterial({ color: 0xe8e2d4 }))
+    hat.position.y = 1.9
+    m.add(hat)
+  } else if (kind === 'tablet'){
+    const tab = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.28),
+      new THREE.MeshBasicMaterial({ color: 0x9db8d8, side: THREE.DoubleSide }))
+    tab.position.set(0.24, 1.2, 0.18)
+    tab.rotation.x = -0.5
+    m.add(tab)
+  }
+}
+
 /* Each character knows who they are, where they are, and what they can advise (§13).
    `near` is the real place in LOCATIONS a character is NEAR. None of these people work
    for, are employed by, or are otherwise connected to any real business — they are
@@ -912,6 +953,13 @@ PEOPLE.forEach(p => {
   chipLayer.appendChild(chip)
   p.chip = chip
 })
+/* role props: photographer, chef, concierge read at a glance */
+{
+  const byId = id => PEOPLE.find(p => p.id === id)
+  const sora = byId('sora'); if (sora) addProp(sora, 'camera')
+  const aoi = byId('aoi'); if (aoi) addProp(aoi, 'toque')
+  const rei = byId('rei'); if (rei) addProp(rei, 'tablet')
+}
 
 /* --------------------------- dialogue ---------------------------- */
 
@@ -4110,6 +4158,11 @@ function updateWorld(dt, t, doRender = true){
     if (nz < -124) nz = 12
     if (nz > 12) nz = -124
     c.position.z = nz
+    /* headlights work at night and reflect the wet: brighter when dark */
+    if (u.headMat && u.headBase && u.isHead){
+      const k = timeIsNight ? (0.9 + atm.wet * 0.5) : 0.55
+      u.headMat.color.copy(u.headBase).multiplyScalar(k)
+    }
   })
 
   peds.forEach(p => {
