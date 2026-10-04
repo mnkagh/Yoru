@@ -164,16 +164,44 @@ function addBuilding(x, z, w, h, d, mat){
 }
 
 const farBuildings = []
+/* District massing: the street must read as different parts of Tokyo,
+   not one repeated block. Heights, widths and street width vary by
+   district; landmarks and street character are added per district below. */
+function districtAtZ(z){
+  if (z > 6) return 'shinjuku'
+  if (z > -26) return 'nishishinjuku'
+  if (z > -40) return 'harajuku'
+  if (z > -54) return 'shibuya'
+  if (z > -68) return 'nakameguro'
+  if (z > -82) return 'roppongi'
+  if (z > -96) return 'ginza'
+  if (z > -110) return 'tsukiji'
+  if (z > -124) return 'akihabara'
+  return 'asakusa'
+}
+const DIST_ENV = {
+  shinjuku:     { hMin:18, hMax:38, wMin:4.0, wMax:7.0, xBase:13 },
+  nishishinjuku:{ hMin:15, hMax:32, wMin:3.5, wMax:6.0, xBase:12 },
+  harajuku:     { hMin:6,  hMax:14, wMin:3.0, wMax:5.0, xBase:9 },
+  shibuya:      { hMin:10, hMax:24, wMin:4.0, wMax:7.0, xBase:16 },
+  nakameguro:   { hMin:5,  hMax:12, wMin:3.0, wMax:5.0, xBase:10 },
+  roppongi:     { hMin:12, hMax:28, wMin:4.0, wMax:6.0, xBase:12 },
+  ginza:        { hMin:10, hMax:20, wMin:5.0, wMax:8.0, xBase:15 },
+  tsukiji:      { hMin:4,  hMax:10, wMin:3.0, wMax:5.0, xBase:10 },
+  akihabara:    { hMin:12, hMax:26, wMin:3.5, wMax:6.0, xBase:11 },
+  asakusa:      { hMin:4,  hMax:10, wMin:3.0, wMax:6.0, xBase:11 }
+}
 for(let z = 8; z > -150; z -= 5 + Math.random()*4){
+  const env = DIST_ENV[districtAtZ(z)] || DIST_ENV.shinjuku
   const alley = (z < -60 && z > -84)
   const plaza = (z < -40 && z > -60)
   const arcade = (z < -84 && z > -104)
   if(plaza && Math.random() < 0.7) continue
   for(const side of [-1, 1]){
     if(Math.random() < 0.12) continue
-    const xBase = alley ? 6.2 : (plaza ? 16 : 12.5)
-    const w = 3.5 + Math.random()*3.5
-    const h = arcade ? 10+Math.random()*16 : 8 + Math.random()*30
+    const xBase = plaza ? 16 : (alley ? 6.2 : env.xBase)
+    const w = env.wMin + Math.random()*(env.wMax - env.wMin)
+    const h = arcade ? 10+Math.random()*16 : env.hMin + Math.random()*(env.hMax - env.hMin)
     const d = 4 + Math.random()*3
     const x = side * (xBase + w/2 + Math.random()*2)
     const mat = bMats[Math.floor(Math.random()*3)]
@@ -188,6 +216,74 @@ for(let i=0;i<70;i++){
   const m = addBuilding(x, z, w, h, d, bMats[Math.floor(Math.random()*3)])
   farBuildings.push(m)
 }
+
+/* ---------------- district landmarks (geography must make sense) -------
+   Skytree stands east of Asakusa (~1km from Senso-ji); Tokyo Tower
+   rises south-west of Roppongi; the Meguro river runs through
+   Nakameguro. All are silhouettes, not models — they read at distance. */
+const landmarkMats = []
+function landmarkMat(color){
+  const m = new THREE.MeshBasicMaterial({ color })
+  m.userData.base = new THREE.Color(color)
+  landmarkMats.push(m)
+  return m
+}
+/* Tokyo Skytree: tapered white-blue lattice tower with two decks */
+(function skytree(){
+  const g = new THREE.Group()
+  const white = landmarkMat(0x9fb4c8)
+  const deck = landmarkMat(0x7d94ac)
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 3.2, 34, 8), white)
+  mast.position.y = 17
+  g.add(mast)
+  const deck1 = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 1.6, 8), deck)
+  deck1.position.y = 24
+  g.add(deck1)
+  const deck2 = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 1.2, 8), deck)
+  deck2.position.y = 30
+  g.add(deck2)
+  const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.5, 8, 6), white)
+  spire.position.y = 38
+  g.add(spire)
+  g.position.set(26, 0, -138)
+  city.add(g)
+})();
+/* Tokyo Tower: red-white tapered tower, south-west of Roppongi */
+(function tokyoTower(){
+  const g = new THREE.Group()
+  const red = landmarkMat(0xa03a30)
+  const wt = landmarkMat(0xd8d4c8)
+  const legs = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 3.4, 18, 4), red)
+  legs.position.y = 9
+  legs.rotation.y = Math.PI / 4
+  g.add(legs)
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 1.8, 4), wt)
+  band.position.y = 14
+  band.rotation.y = Math.PI / 4
+  g.add(band)
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 1.2, 12, 4), red)
+  top.position.y = 23
+  top.rotation.y = Math.PI / 4
+  g.add(top)
+  g.position.set(-28, 0, -84)
+  city.add(g)
+})();
+/* Meguro river + bridge at Nakameguro: dark water plane the street crosses */
+const riverMat = new THREE.MeshBasicMaterial({ color: 0x0d1620, transparent: true, opacity: 0.92 })
+;(function river(){
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(46, 7), riverMat)
+  water.rotation.x = -Math.PI / 2
+  water.position.set(0, 0.02, -61)
+  city.add(water)
+  const bridge = new THREE.Mesh(new THREE.BoxGeometry(7, 0.3, 8.4), landmarkMat(0x232a36))
+  bridge.position.set(0, 0.18, -61)
+  city.add(bridge)
+  for (const sx of [-3.2, 3.2]){
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.8, 8.4), landmarkMat(0x3a4356))
+    rail.position.set(sx, 0.7, -61)
+    city.add(rail)
+  }
+})();
 
 const signs = []
 const signDefs = [
@@ -4111,6 +4207,15 @@ function updateWorld(dt, t, doRender = true){
   bMatB = lerp(bMatB, timeIsNight ? 0.68 + winK * 0.1 : 0.84, 0.05)
   bMats.forEach(m => m.color.setRGB(bMatR * warmK * 0.62, bMatG * warmK * 0.62, bMatB * warmK * 0.62))
 
+  /* landmarks are silhouettes: they darken with the light so a noon
+     tower does not glow at midnight. Skytree keeps aviation beacons. */
+  const landK = 0.25 + clamp(atm.light, 0, 1.1) * 0.75
+  landmarkMats.forEach(m => {
+    if (!m.userData.base) return
+    m.color.copy(m.userData.base).multiplyScalar(landK)
+  })
+  if (riverMat) riverMat.color.setRGB(0.05 + atm.light * 0.04, 0.08 + atm.light * 0.05, 0.12 + atm.light * 0.07)
+
   /* wet ground: puddles deepen and the road picks up a sheen */
   puddles.forEach(p => {
     const want = 0.05 + atm.wet * 0.5
@@ -4198,23 +4303,23 @@ function updateWorld(dt, t, doRender = true){
     if (clawU.dropT <= 0){ clawArm.position.y = 1.6; clawHand.position.y = 1.15 }
   }
 
-  if (!doRender) return
-
-  /* visibility-based rendering: opaque full-bleed sections cover the canvas,
-     so we stop drawing the 3D entirely while they are on screen */
-  let covered = false
-  if (state.mode === 'tour'){
-    for (const id of ['provisions','atlas','itinerary','concierge','close']){
-      const el = $(id)
-      if (!el) continue
-      const r = el.getBoundingClientRect()
-      if (r.top <= 8 && r.bottom >= innerHeight - 8){ covered = true; break }
+  if (doRender){
+    /* visibility-based rendering: opaque full-bleed sections cover the canvas,
+       so we stop drawing the 3D entirely while they are on screen */
+    let covered = false
+    if (state.mode === 'tour'){
+      for (const id of ['provisions','atlas','itinerary','concierge','close']){
+        const el = $(id)
+        if (!el) continue
+        const r = el.getBoundingClientRect()
+        if (r.top <= 8 && r.bottom >= innerHeight - 8){ covered = true; break }
+      }
     }
-  }
-  if (covered && !state.mapOpen) return
+    if (covered && !state.mapOpen) return
 
-  composer.render()
-  state.rendered++
+    composer.render()
+    state.rendered++
+  }
 }
 
 /* The rAF driver: nothing but the clock and the schedule live here,
