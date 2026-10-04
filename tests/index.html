@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>liminal-tokyo tests</title>
+<style>
+  html,body{margin:0;background:#0b0b0d;color:#ddd;font:12px ui-monospace,Consolas,monospace}
+  #stage{position:relative}
+  iframe{position:absolute;left:-4000px;top:0;width:1400px;height:900px;border:0}
+  #out{white-space:pre-wrap;padding:16px;line-height:1.6}
+  .p{color:#8f8} .f{color:#f77}
+</style>
+</head>
+<body>
+<div id="stage"><iframe id="f" src="/"></iframe></div>
+<pre id="out">running…</pre>
+<script src="./scenarios.js"></script>
+<script>
+const results = []
+const rec = (name, pass, detail) => results.push({ name, pass: !!pass, detail: detail === undefined ? '' : String(detail) })
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+function render(){
+  document.getElementById('out').innerHTML =
+    results.map(r => (r.pass ? '<span class="p">PASS</span>  ' : '<span class="f">FAIL</span>  ') +
+      r.name + (r.detail ? '   <span style="color:#888">' + r.detail + '</span>' : '')).join('\n') +
+    '\n\n' + results.filter(r=>r.pass).length + '/' + results.length + ' passed'
+  const pre = document.createElement('pre')
+  pre.id = 'result'
+  pre.textContent = JSON.stringify(results)
+  pre.style.display = 'none'
+  document.body.appendChild(pre)
+}
+
+addEventListener('load', async () => {
+  const w = document.getElementById('f').contentWindow
+  const d = w.document
+  const Y = () => w.__yoru
+  const $ = id => d.getElementById(id)
+  const sleep_ = sleep
+
+  try{
+    for (let i = 0; i < 60 && !Y(); i++) await sleep_(250)
+    if (!Y()){ rec('app booted', false, 'window.__yoru never appeared'); render(); return }
+    rec('app booted', true)
+
+    const scenario = new URLSearchParams(location.search).get('s') || 'all'
+    const all = SCENARIOS
+    const run = n => all[n]({ w, d, Y, $, rec, sleep: sleep_ })
+
+    if (scenario === 'all'){
+      for (const k of Object.keys(all)) await run(k)
+    } else await run(scenario)
+  } catch (e){
+    rec('harness error', false, e && (e.stack || e.message))
+  }
+  render()
+})
+</script>
+</body>
+</html>

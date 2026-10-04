@@ -1,0 +1,62 @@
+[
+  {
+    "name": "app booted",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "16 institutions",
+    "pass": true,
+    "detail": "16"
+  },
+  {
+    "name": "22 map places",
+    "pass": true,
+    "detail": "22"
+  },
+  {
+    "name": "8 dishes",
+    "pass": true,
+    "detail": "8"
+  },
+  {
+    "name": "9-person cast",
+    "pass": true,
+    "detail": "9"
+  },
+  {
+    "name": "every official site is a verified url or explicitly null",
+    "pass": true,
+    "detail": "14 verified, 2 null"
+  },
+  {
+    "name": "no fake domains",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "every location has coordinates",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "9 licensed photographs with credit",
+    "pass": true,
+    "detail": "9 images"
+  },
+  {
+    "name": "sources listed for every location",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "atmosphere control present",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "harness error",
+    "pass": false,
+    "detail": "TypeError: Cannot read properties of null (reading 'querySelectorAll')\n    at SCENARIOS.regression (http://localhost:5199/tests/scenarios.js:329:45)\n    at run (http://localhost:5199/tests/index.html?s=regression:51:28)\n    at http://localhost:5199/tests/index.html?s=regression:55:18"
+  }
+]

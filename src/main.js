@@ -7,7 +7,13 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 
-const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches
+const REDUCED_Q = matchMedia('(prefers-reduced-motion: reduce)')
+let REDUCED = REDUCED_Q.matches
+/* the browser preference is the source of truth, and it can change mid-session (§47) */
+REDUCED_Q.addEventListener('change', e => {
+  REDUCED = e.matches
+  document.body.classList.toggle('reduced', REDUCED)
+})
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches
 const lerp = (a,b,t)=>a+(b-a)*t
 const clamp = THREE.MathUtils.clamp
@@ -641,6 +647,8 @@ const state = {
   it:[],
   filters:new Set(),
   reduce: REDUCED,
+  frames:0,
+  rendered:0,
   listening:false,
   speaking:false
 }
@@ -676,6 +684,7 @@ const TOUR = [
     body:'From eleven floors up the rain stops falling on you. Below, a train runs empty, a shop pulls its shutter, and another night begins without ceremony.' }
 ]
 
+/* Normal motion: smooth cinematic travel between waypoints. */
 function camAt(p){
   let i = 0
   while(i < TOUR.length-2 && p > TOUR[i+1].at) i++
@@ -683,6 +692,24 @@ function camAt(p){
   const t = smooth(clamp((p - a.at)/(b.at - a.at), 0, 1))
   camPos.set(lerp(a.pos[0],b.pos[0],t), lerp(a.pos[1],b.pos[1],t), lerp(a.pos[2],b.pos[2],t))
   camLook.set(lerp(a.look[0],b.look[0],t), lerp(a.look[1],b.look[1],t), lerp(a.look[2],b.look[2],t))
+}
+
+/* Reduced motion (§47): NO cinematic travel. The camera represents the district
+   you are in by sitting at that district's viewpoint at street height. It steps
+   between districts rather than flying, swooping or continuously interpolating,
+   so scroll position, district content, discovery, dialogue and the map all keep
+   working exactly as before. */
+function camAtStatic(p){
+  let best = 0, bestD = Infinity
+  for (let i = 0; i < TOUR.length; i++){
+    const d = Math.abs(TOUR[i].at - p)
+    if (d < bestD){ bestD = d; best = i }
+  }
+  const w = TOUR[best]
+  /* hold a human, street-level height: never the opening aerial shot */
+  const y = clamp(w.pos[1], 1.75, 2.6)
+  camPos.set(w.pos[0], y, w.pos[2])
+  camLook.set(w.look[0], w.look[1], w.look[2])
 }
 
 /* ---------------------------- chapters ---------------------------- */
@@ -741,25 +768,27 @@ function makePerson(x, z, coat, accent, facing){
 }
 
 /* Each character knows who they are, where they are, and what they can advise (§13).
-   `loc` ties a character to a real venue in LOCATIONS where one applies. */
+   `near` is the real place in LOCATIONS a character is NEAR. None of these people work
+   for, are employed by, or are otherwise connected to any real business — they are
+   fictional characters and nothing in the dialogue implies otherwise (§42). */
 const PEOPLE = [
-  { id:'akira',  name:'Akira',  role:'Local guide',           district:'Nishi-Shinjuku', loc:'omoide',   knows:'nightlife, hidden streets, late-night dining',
+  { id:'akira',  name:'Akira',  role:'Local guide',           district:'Nishi-Shinjuku', near:'omoide',   knows:'nightlife, hidden streets, late-night dining',
     x:-2.2, z:-8,  facing: 1.1,  coat:0x2b2620, accent:0xa8894f, from:0.01, to:0.14, idle:'phone' },
-  { id:'yuki',   name:'Yuki',   role:'Private cultural guide', district:'Yoyogi',        loc:'meiji',    knows:'temples, shrines, quiet lanes, cultural context',
+  { id:'yuki',   name:'Yuki',   role:'Private cultural guide', district:'Yoyogi',        near:'meiji',    knows:'temples, shrines, quiet lanes, cultural context',
     x:-2.4, z:-30, facing: 1.2,  coat:0x2b2620, accent:0xc9a961, from:0.16, to:0.32, idle:'guide' },
-  { id:'aoi',    name:'Aoi',    role:'Chef',                  district:'Minami-Aoyama', loc:'narisawa', knows:'Japanese cuisine, ingredients, kaiseki, food etiquette',
+  { id:'aoi',    name:'Aoi',    role:'Chef',                  district:'Minami-Aoyama', near:'narisawa', knows:'Japanese cuisine, ingredients, kaiseki, food etiquette',
     x:0.7,  z:-46, facing:-0.9,  coat:0x33291f, accent:0xd8c9a8, from:0.30, to:0.46, idle:'chef' },
-  { id:'rei',    name:'Rei',    role:'Luxury concierge',      district:'Ginza',         loc:'jiro',     knows:'shopping, design, fine dining, private experiences',
+  { id:'rei',    name:'Rei',    role:'Luxury concierge',      district:'Ginza',         near:'jiro',     knows:'shopping, design, fine dining, private experiences',
     x:2.4,  z:-54, facing:-1.2,  coat:0x2a2530, accent:0xb9aec4, from:0.42, to:0.54, idle:'curator' },
-  { id:'haruki', name:'Haruki', role:'Sake curator',          district:'Ginza',         loc:'birdland', knows:'sake, grain, brewing, pairing',
+  { id:'haruki', name:'Haruki', role:'Sake curator',          district:'Ginza',         near:'birdland', knows:'sake, grain, brewing, pairing',
     x:2.6,  z:-70, facing:-1.4,  coat:0x241f1c, accent:0xa8894f, from:0.52, to:0.64, idle:'host' },
   { id:'sora',   name:'Sora',   role:'Photographer',          district:'Shibuya',       knows:'photography, street culture, night views, quiet observation points',
     x:-2.8, z:-78, facing: 1.4,  coat:0x22262c, accent:0xc9d4dc, from:0.60, to:0.72, idle:'photo' },
   { id:'ren',    name:'Ren',    role:'Independent designer', district:'Kuramae',       knows:'craft, textiles, small studios, independent makers',
     x:-2.6, z:-90, facing: 1.5,  coat:0x2a2530, accent:0xb9aec4, from:0.68, to:0.80, idle:'curator' },
-  { id:'mika',   name:'Mika',   role:'Tea practitioner',      district:'Minami-Aoyama', loc:'ippodo',   knows:'matcha, ceremony, gyokuro, tea etiquette',
+  { id:'mika',   name:'Mika',   role:'Tea practitioner',      district:'Minami-Aoyama', near:'ippodo',   knows:'matcha, ceremony, gyokuro, tea etiquette',
     x:2.2,  z:-100,facing:-1.1,  coat:0x36302a, accent:0xc9a961, from:0.76, to:0.92, idle:'host' },
-  { id:'kenji',  name:'Kenji',  role:'Record dealer',         district:'Shimokitazawa', loc:'tsuwajiri',knows:'vinyl, jazz, city pop, listening rooms',
+  { id:'kenji',  name:'Kenji',  role:'Record dealer',         district:'Shimokitazawa', near:'tsuwajiri',knows:'vinyl, jazz, city pop, listening rooms',
     x:-2.4, z:-104,facing: 1.0,  coat:0x2e2a26, accent:0xc9a961, from:0.86, to:0.98, idle:'phone' }
 ]
 const chipLayer = $('chip-layer')
@@ -1006,7 +1035,7 @@ function dlgButtons(list){
   })
 }
 
-function handleChoice(b){
+function handleCharacterChoice(b){
   if (b.url){ window.open(b.url, '_blank', 'noopener'); return }
   if (b.add){ addToItinerary(b.add); dlgLine(nameOf(state.guide), 'Added to My Tokyo — ' + b.add + '.'); return }
   dlgLine(nameOf(state.guide), b.t, 'user')
@@ -1067,15 +1096,19 @@ function reply(text, unused){
 }
 
 /* ---------------- opening / closing ---------------- */
-function openDialogue(id){
+function openDialogue(id, over){
   const d = DIALOGUE[id]
   if (!d) return
+  over = over || {}
   state.guide = id
   const p = PEOPLE.find(q => q.id === id)
   markPeople(id, p.name, p.role)
   if (p && p.mesh) p.mesh.userData.turned = tGlobal
-  talk.history.length = 0
-  talk.lastTopic = null
+  /* a fresh character opens a fresh conversation; re-opening with the same
+     character keeps what was already said (§21) */
+  const continuing = over.keepMemory && talk.who === id
+  if (!continuing){ talk.history.length = 0; talk.lastTopic = null; talk.food = over.food || null }
+  talk.who = id
 
   $('dlg-name').textContent = p ? p.name : id
   $('dlg-role').textContent = p ? p.role : ''
@@ -1083,10 +1116,11 @@ function openDialogue(id){
   dlgBody.innerHTML = ''
   dlgOpts.innerHTML = ''
   pendingLoc = null
+  if (over.topic) talk.lastTopic = over.topic
 
   /* the character acknowledges YOU, in their own voice (§12) */
-  dlgLine(p ? p.name : id, GREET[id] || d.open)
-  dlgButtons(d.options)
+  dlgLine(p ? p.name : id, over.line || GREET[id] || d.open)
+  dlgButtons(over.options || d.options)
   setDlgState('Press Listen to hear the reply, or Talk to speak.')
   $('dialogue').classList.add('on')
   document.body.classList.add('locked')
@@ -1113,6 +1147,7 @@ document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return
   if ($('dialogue').classList.contains('on')) closeDialogue()
   else if ($('location').classList.contains('on')) closeLocation()
+  else if ($('discovery').classList.contains('on')) closeDiscovery()
   else if (!$('atmos-panel').hasAttribute('hidden')){
     $('atmos-panel').setAttribute('hidden', '')
     $('atmos-toggle').setAttribute('aria-expanded', 'false')
@@ -2061,6 +2096,205 @@ function closeLocation(){
 }
 $('loc-close').addEventListener('click', closeLocation)
 
+/* ---------------- food -> chef -> dialogue (§30) ---------------- *
+ * The chef is a fictional character who explains how a dish is made. Nothing
+ * here claims any connection to a real restaurant or a real person, and a venue
+ * is only offered where one has actually been verified (§42).
+ */
+const CHEF_ID = 'aoi'
+
+const DISH_VENUE = { sushi:'jiro', yakitori:'birdland', tonkatsu:'maisen', matcha:'ippodo' }
+
+const CHEF_TALK = {
+  ramen: {
+    line: "You looked at the broth before anything else. Good — that is the correct thing to look at. What do you want to know?",
+    options: [
+      { t:'What makes this broth different?', go:'broth' },
+      { t:'What should I order?', go:'order' },
+      { t:'How is it actually prepared?', go:'prep' },
+      { t:'What do locals order?', go:'local' },
+      { t:'Tell me more.', go:'more' }
+    ],
+    broth: { say:"Pork bone, and a long time. The collagen is what gives it body, so it cannot be hurried — hours, sometimes a full day, skimmed as it goes. Shoyu and miso are shortcuts in the sense that they arrive in minutes. That is the whole difference.", loc:null },
+    order: { say:"Start with what you already like. If you have never had tonkotsu, order that and eat it fast — the noodle keeps cooking in the bowl. If you want to understand the broth, order shoyu, which shows you nothing it does not have to.", loc:null },
+    prep: { say:"Noodles are cut fresh and boiled to order. The topping is a footnote; almost every shop in Tokyo will get the broth right before it gets anything else right.", loc:null },
+    local: { say:"The regulars order whatever the shop is known for, and they have usually stopped reading the board. That is the honest answer: go where you can see the steam, and order what is in front of you.", loc:null },
+    more: { say:"One more thing, because nobody tells you this. Slurping is not rude here — it is how you show the broth is right. The noise is a compliment to the pot, not to you.", loc:null }
+  },
+  sushi: {
+    line: "Sushi is the easiest thing to fake and the hardest thing to hide. Tell me where to start and I will tell you what actually matters.",
+    options: [
+      { t:'What should I order?', go:'order' },
+      { t:'How is it prepared?', go:'prep' },
+      { t:'What do locals order?', go:'local' },
+      { t:'What do I avoid?', go:'avoid' },
+      { t:'Tell me more.', go:'more' }
+    ],
+    order: { say:"Nigiri omakase, and whatever is seasonal. Edomae style leans on neta-mare — the topping seasoned and served over plain dressed rice, so the fish is not hidden by anything.", loc:'jiro' },
+    prep: { say:"The rice is the hard part. It is seasoned while still hot, then brought to serving temperature, and it must be eaten within a few minutes or it is overcooked. Everything else on the plate is easier.", loc:null },
+    local: { say:"Regulars ask for the omakase and then say nothing at all. The trust is the point — you are being handed the chef's day.", loc:'jiro' },
+    avoid: { say:"Skip anything with a very long name you cannot pronounce, and skip the tourist set menus. If the fish is sitting under a display case under light, it is older than you want it to be.", loc:null },
+    more: { say:"And eat the fish, not the rice. In a traditional omakase there is no wasabi at all — if there is, ask the chef before reaching for it.", loc:null }
+  },
+  tempura: {
+    line: "Tempura has one rule and everything else follows from it. It must be eaten the second it leaves the pan.",
+    options: [
+      { t:'What makes good tempura?', go:'broth' },
+      { t:'What should I order?', go:'order' },
+      { t:'How is it prepared?', go:'prep' },
+      { t:'What do locals order?', go:'local' },
+      { t:'Tell me more.', go:'more' }
+    ],
+    broth: { say:"The batter has to be cold and lumpy. Smooth batter fries heavy, and that is the mistake almost everywhere outside Japan makes.", loc:null },
+    order: { say:"Ebi and anago are the tests. If the shrimp is straight and the batter is thin enough to see the stripes through, the kitchen is good.", loc:null },
+    prep: { say:"Dipped once, held for a count, drained. The oil is the temperature the cook is holding all evening, not a number on a menu.", loc:null },
+    local: { say:"The standing counters. Fewer seats, a cook who can see you, and no menu written for tourists.", loc:null },
+    more: { say:"Grated daikon radish for dipping, and salt for the seafood. If a restaurant gives you tartar sauce, that is the whole review.", loc:null }
+  },
+  yakitori: {
+    line: "Yakitori is a list, and the order of that list is the whole argument. Every skewer passes over the same coals, in the same sequence, all night.",
+    options: [
+      { t:'What should I order?', go:'order' },
+      { t:'How is it prepared?', go:'prep' },
+      { t:'What do locals order?', go:'local' },
+      { t:'Tell me more.', go:'more' }
+    ],
+    order: { say:"Tsukune to start — that is the skewer that tells you whether the rest will be good. Then whatever the shop is famous for, because the queue already decided.", loc:'birdland' },
+    prep: { say:"One burner. Raw through to char, in order, over and over, for hours. Salt on the simple things, tare only where tare belongs.", loc:null },
+    local: { say:"Sakizuke — an alcoholic drink that is not beer or spirits — between skewers. Regulars order it and nobody else does.", loc:null },
+    more: { say:"Ask for the tsukune with the tare poured off, so you taste the meat before the glaze. You can ask for the reverse later.", loc:null }
+  },
+  tonkatsu: {
+    line: "Tonkatsu is a sandwich that people are embarrassed about. Let me explain why they should not be.",
+    options: [
+      { t:'What makes good tonkatsu?', go:'broth' },
+      { t:'What should I order?', go:'order' },
+      { t:'How is it prepared?', go:'prep' },
+      { t:'What do locals order?', go:'local' },
+      { t:'Tell me more.', go:'more' }
+    ],
+    broth: { say:"Panko. That is the entire argument. Machine crumbs fry heavy and oily; bread crumbs cut from a loaf fry light. Maisen cut theirs from black sourdough, and you can tell before you bite it.", loc:'maisen' },
+    order: { say:"The cutlet, shredded cabbage, rice, and soup on the side — the soup after, not before, or the crust goes soft.", loc:null },
+    prep: { say:"Pork is swatted dry, floured, egged, and pressed into the crumbs so it stays together. Fried once at a lower temperature to cook through, then again hot to colour.", loc:null },
+    local: { say:"Eat it immediately and use less sauce than you think. A second helping of rice is normal; a second helping of cutlet is a statement.", loc:null },
+    more: { say:"Ebisu is the temple of the argument. Thirty years of people disagreeing about panko, all of them right.", loc:null }
+  },
+  wagashi: {
+    line: "Wagashi is the part of the meal most people skip, and it is the part with the shortest life. Look at it before you eat it.",
+    options: [
+      { t:'What is it?', go:'broth' },
+      { t:'What should I order?', go:'order' },
+      { t:'How is it prepared?', go:'prep' },
+      { t:'When is it in season?', go:'local' },
+      { t:'Tell me more.', go:'more' }
+    ],
+    broth: { say:"Sweets built around the season rather than the shelf. Sweet potato in autumn, sakura in spring, yuzu in winter. If it does not match the month, it is not wagashi.", loc:null },
+    order: { say:"Ask what arrived today and choose that. The counter will almost always be right about what is best.", loc:null },
+    prep: { say:"Rice paste, red bean, agar, fruit — and the hands of someone who does this every day for years.", loc:null },
+    local: { say:"You will be offered tea with it, and you should accept. The pairing is deliberate.", loc:null },
+    more: { say:"Eat it with your fingers if you are given no fork. That is not informality; it is the correct way to eat something this delicate.", loc:null }
+  },
+  matcha: {
+    line: "Matcha is a bowl and a whisk and about four minutes of someone's morning. You have spotted the least interesting part of it.",
+    options: [
+      { t:'How is it prepared?', go:'prep' },
+      { t:'What should I order?', go:'order' },
+      { t:'What do locals order?', go:'local' },
+      { t:'Is there etiquette?', go:'broth' },
+      { t:'Tell me more.', go:'more' }
+    ],
+    order: { say:"Ask for whichever of the three thicknesses you have not had. Koicha is thick and ceremonial, usucha is thin and everyday, and matcha in between.", loc:'ippodo' },
+    prep: { say:"Ground on a stone mill, whisked in a bowl, not stirred. The foam is the proof it was whisked rather than mixed.", loc:null },
+    local: { say:"Sencha by day for most people, and gyokuro if you want the rare, shaded, almost savoury version. The second bowl is where it starts to make sense.", loc:null },
+    broth: { say:"Turn the bowl so the front faces you and drink from the side, not the front. Finish it — leaving a mouthful is how you politely refuse a refill.", loc:null },
+    more: { say:"And the first bowl is always too bitter and too hot. That is correct. Start again.", loc:null }
+  },
+  sake: {
+    line: "Sake is the part of the evening people treat as an aperitif. It is not an aperitif. Shall I change your mind?",
+    options: [
+      { t:'How is sake made?', go:'prep' },
+      { t:'What should I order?', go:'order' },
+      { t:'What do locals order?', go:'local' },
+      { t:'How do I drink it?', go:'broth' },
+      { t:'Tell me more.', go:'more' }
+    ],
+    order: { say:"Junmai daiginjo poured cold, taken slowly, and almost nothing on the palate — which is the point, not a disappointment. Anything elaborate will drown it.", loc:null },
+    prep: { say:"Rice is polished, fermented with koji, pressed, and filtered. The polish is the cost and the age; the koji does the work.", loc:null },
+    local: { say:"Sakazuki, not glasses. Heated to just below body temperature — warm sake is drunk cool, which is why it feels like a mistake the first time.", loc:null },
+    broth: { say:"Small sips, and something to eat between them. Sake drunk on an empty stomach arrives faster than you expect.", loc:null },
+    more: { say:"Ask for the brewery. Almost nobody does, and the brewer is normally two hours away by train.", loc:null }
+  }
+}
+
+function meetTheChef(dishId){
+  const dish = DISHES.find(d => d.id === dishId)
+  const talkSet = CHEF_TALK[dishId] || CHEF_TALK.ramen
+  const chef = PEOPLE.find(p => p.id === CHEF_ID)
+  const venue = DISH_VENUE[dishId]
+  /* the chef explains the dish; a real place is only offered when verified */
+  const options = talkSet.options.map(o => Object.assign({}, o))
+  if (venue){
+    const l = LOCATIONS.find(x => x.id === venue)
+    if (l) options.push({ t: 'Show me ' + l.name + ' →', go: '__venue:' + venue })
+  }
+  handleChoice.__pendingVenue = venue || null
+  openDialogue(CHEF_ID, {
+    line: talkSet.line, options, topic: dishId, keepMemory: true
+  })
+}
+
+function handleChoice(b){
+  /* food conversations branch through the chef's own script, but they end up
+     in the same actions — Show me, Show on atlas, Add to My Tokyo */
+  if (b.go && b.go.indexOf('__venue:') === 0){
+    dlgLine(nameOf(state.guide), b.t, 'user')
+    pendingLoc = b.go.split(':')[1]
+    replyWithVenue(pendingLoc)
+    return
+  }
+  if (b.go === '__opts'){
+    dlgLine(nameOf(state.guide), b.t, 'user')
+    dlgButtons(talk.food && CHEF_TALK[talk.food] ? CHEF_TALK[talk.food].options : DIALOGUE[state.guide].options)
+    return
+  }
+  const chefNode = talk.food && CHEF_TALK[talk.food] ? CHEF_TALK[talk.food][b.go] : null
+  if (chefNode){
+    dlgLine(nameOf(state.guide), b.t, 'user')
+    setTimeout(() => {
+      dlgLine(nameOf(state.guide), chefNode.say)
+      const venue = DISH_VENUE[talk.food]
+      const acts = []
+      if (venue){
+        acts.push({ t:'Show me →', go:'view', primary:true })
+        acts.push({ t:'Show on atlas →', go:'atlas' })
+      }
+      acts.push({ t:'Tell me more.', go:'more' })
+      acts.push({ t:'Back to the options.', go:'__opts' })
+      dlgButtons(acts)
+      pendingLoc = venue || null
+      talk.lastTopic = b.go
+      setDlgState('Reply ready — press Listen to hear it.')
+    }, 380)
+    return
+  }
+  handleCharacterChoice(b)
+}
+
+function replyWithVenue(id){
+  const l = LOCATIONS.find(x => x.id === id)
+  if (!l) return
+  setTimeout(() => {
+    dlgButtons([
+      { t:'Show me →', go:'view', primary:true },
+      { t:'Show on atlas →', go:'atlas' },
+      { t:'Add to my Tokyo', add: l.name },
+      { t:'Back to the options.', go:'__opts' }
+    ])
+    pendingLoc = id
+    setDlgState('Reply ready — press Listen to hear it.')
+  }, 380)
+}
+
 /* ------------------------------ food ------------------------------ */
 
 const DISHES = [
@@ -2203,6 +2437,19 @@ function showDish(i){
   at.textContent = 'Show on the map →'
   at.addEventListener('click', () => { initMap(); $('atlas').scrollIntoView({ behavior: 'smooth' }) })
   $('dish-links').appendChild(at)
+  /* food -> person: the chef for this dish, using the existing NPC system */
+  const chefBtn = document.createElement('button')
+  chefBtn.id = 'dish-chef'
+  chefBtn.className = 'btn ghost'
+  chefBtn.textContent = 'Meet the chef →'
+  chefBtn.setAttribute('aria-label', 'Speak with the chef about ' + d.n)
+  chefBtn.addEventListener('click', () => {
+    const chef = PEOPLE.find(p => p.id === CHEF_ID)
+    meetTheChef(d.id)
+    /* bring the chef into reach so the turn-toward is visible, then speak */
+    if (chef && chef.mesh) chef.mesh.userData.turned = performance.now() / 1000
+  })
+  $('dish-links').appendChild(chefBtn)
   document.querySelectorAll('#dish-rail button').forEach((b, k) => {
     b.classList.toggle('on', k === i)
     b.setAttribute('aria-selected', String(k === i))
@@ -2218,7 +2465,7 @@ function toast(msg, dur=3400){
 }
 
 const DISC_STORE = 'yoru-discovery'
-let disc = { people:{}, places:{}, food:{}, moments:[], passport:{} }
+let disc = { people:{}, places:{}, food:{}, moments:[], passport:{}, things:{} }
 try { disc = Object.assign(disc, JSON.parse(localStorage.getItem(DISC_STORE) || '{}')) } catch (e) {}
 
 function saveDisc(){ try { localStorage.setItem(DISC_STORE, JSON.stringify(disc)) } catch (e) {} }
@@ -2246,6 +2493,13 @@ function renderTally(){
   $('t-food').textContent    = String(Object.keys(disc.food).length).padStart(2,'0')
   $('t-moments').textContent = String(disc.moments.length).padStart(2,'0')
   renderPassport()
+}
+
+/* small objects you can identify — torii, cat, vending machine, sign, train */
+function markDiscovery(kind){
+  if (disc.things[kind]) return
+  disc.things[kind] = true
+  saveDisc()
 }
 
 function markPeople(id, name, role){
@@ -2338,7 +2592,7 @@ function pickAt(cx, cy){
 }
 
 window.addEventListener('pointermove', e => {
-  if (state.mode !== 'tour' || $('dialogue').classList.contains('on') || $('location').classList.contains('on')) return
+  if (state.mode !== 'tour' || $('dialogue').classList.contains('on') || $('location').classList.contains('on') || $('discovery').classList.contains('on')) return
   const hit = pickAt(e.clientX, e.clientY)
   let root = null
   if (hit){ root = hit; while (root && !root.userData.type) root = root.parent }
@@ -2364,6 +2618,8 @@ window.addEventListener('pointermove', e => {
       setCursor('wide', 'LOOK')
     } else if (type === 'claw'){
       setCursor('wide', 'PLAY')
+    } else if (type === 'shrine'){
+      setCursor('wide', "WHAT'S THIS?")
     } else {
       setCursor('default')
     }
@@ -2387,7 +2643,7 @@ const SIGN_EN = {
 
 window.addEventListener('pointerdown', e => {
   if (state.mode !== 'tour') return
-  if ($('dialogue').classList.contains('on') || $('location').classList.contains('on')) return
+  if ($('dialogue').classList.contains('on') || $('location').classList.contains('on') || $('discovery').classList.contains('on')) return
   const hit = pickAt(e.clientX, e.clientY)
   if (!hit) return
   let root = hit
@@ -2398,6 +2654,7 @@ window.addEventListener('pointerdown', e => {
 
   if (type === 'locpin'){ showLocation(root.userData.id); return }
   if (type === 'person'){ openDialogue(root.userData.id); return }
+  if (type === 'shrine'){ showShrineDiscovery(root.userData.shrine); return }
 
   if (type === 'cat'){
     /* the cat looks at you, then walks off (§41) */
@@ -2436,6 +2693,134 @@ window.addEventListener('pointerdown', e => {
     return
   }
 })
+
+/* --------------------------- shrine / torii --------------------------- *
+ * A small Inari shrine marker on a side street. Vermilion gate, a stone
+ * lantern either side and a modest shrine box behind. These stand on
+ * neighbourhood boundaries all across Tokyo, which is why one belongs on
+ * an ordinary back street rather than only at a famous temple.
+ * -------------------------------------------------------------------- */
+const SHRINES = [
+  {
+    id: 'torii', x: 4.6, z: -70.5, rot: -0.22,
+    cat: "What's this?",
+    title: 'Torii gate',
+    sub: 'Shrine marker · Shibuya back street',
+    context: 'You have walked past a vermilion gate standing in the middle of an ordinary residential street. This is a shrine marker — a torii — and there are hundreds of them across Tokyo, usually tucked onto streets that have no reason to be photographed.',
+    culture: 'A torii marks the boundary between the everyday and the sacred: everything behind it belongs to the shrine. The vermilion is iron oxide, the same pigment used on shrine buildings for centuries. Small gates like this usually belong to an Inari shrine, and Inari is the deity of rice, business and prosperity — which is why the gates are so ordinary and so widespread.',
+    etiquette: 'Do not walk through the centre of the gate; step aside and let anyone coming out pass first. A short bow at the gate is customary and needs no words. Offerings at a street shrine are usually a can of drink left on the stone ledge, and you take the empty cans away with you. Do not photograph worshippers up close.',
+    nearby: 'meiji',
+    nearbyWhy: 'Meiji Jingu stands about a kilometre north of this street.'
+  }
+]
+
+function buildShrines(){
+  const vermilion = new THREE.MeshBasicMaterial({ color: 0xa8341f })
+  const stone = new THREE.MeshBasicMaterial({ color: 0x2a2724 })
+  const roofMat = new THREE.MeshBasicMaterial({ color: 0x1d1a17 })
+  const shrineMat = new THREE.MeshBasicMaterial({ color: 0x33291f })
+  const group = new THREE.Group()
+
+  /* two uprights and a kasagi, with the curved shimaki above it */
+  const pierL = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 2.5, 8), vermilion)
+  pierL.position.set(-0.85, 1.25, 0)
+  const pierR = pierL.clone(); pierR.position.x = 0.85
+  const nuki = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.09, 0.12), vermilion)
+  nuki.position.set(0, 1.72, 0)
+  const shimaki = new THREE.Mesh(new THREE.BoxGeometry(2.34, 0.075, 0.18), vermilion)
+  shimaki.position.set(0, 2.44, 0)
+  const kasagi = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.09, 0.22), vermilion)
+  kasagi.position.set(0, 2.57, 0)
+  const gakuzuka = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.28, 0.1), vermilion)
+  gakuzuka.position.set(0, 2.1, 0)
+  group.add(pierL, pierR, nuki, shimaki, kasagi, gakuzuka)
+
+  /* stone lantern either side of the approach */
+  const lantern = () => {
+    const g = new THREE.Group()
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 0.16, 6), stone)
+    base.position.y = 0.08
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.42, 6), stone)
+    shaft.position.y = 0.37
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.2, 0.19), stone)
+    box.position.y = 0.68
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(0.19, 0.14, 6), stone)
+    roof.position.y = 0.85
+    const bud = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), stone)
+    bud.position.y = 0.94
+    g.add(base, shaft, box, roof, bud)
+    return g
+  }
+  const lanternL = lantern(); lanternL.position.set(-1.5, 0, 0.3)
+  const lanternR = lantern(); lanternR.position.set(1.5, 0, 0.3)
+
+  /* the small shrine box behind the gate */
+  const box = new THREE.Group()
+  const platform = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.18, 1.15), stone)
+  platform.position.y = 0.09
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.78, 0.86), shrineMat)
+  body.position.y = 0.57
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.1, 1.1), roofMat)
+  roof.position.y = 1.0
+  const ridge = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.07, 1.14), roofMat)
+  ridge.position.y = 1.08
+  box.add(platform, body, roof, ridge)
+
+  /* offering ledge with a small can, as found on real street shrines */
+  const ledge = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.16), stone)
+  ledge.position.set(0.34, 0.34, 0.46)
+  const can = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.05, 0.05, 0.12, 8),
+    new THREE.MeshBasicMaterial({ color: 0x8f9aa2 })
+  )
+  can.position.set(0.34, 0.42, 0.46)
+  box.add(ledge, can)
+
+  /* generous invisible click volume */
+  const hit = new THREE.Mesh(
+    new THREE.BoxGeometry(3.4, 3.0, 2.4),
+    new THREE.MeshBasicMaterial({ visible: false })
+  )
+  hit.position.y = 1.4
+  hit.userData = { type: 'shrine', shrine: SHRINES[0].id }
+
+  group.add(box, lanternL, lanternR, hit)
+  group.position.set(SHRINES[0].x, 0, SHRINES[0].z)
+  group.rotation.y = SHRINES[0].rot
+  SHRINES[0].group = group
+  city.add(group)
+}
+buildShrines()
+
+/* the discovery is editorial and only states things that are actually true of
+   street shrines in Tokyo; the nearby real place is taken from verified data */
+const shrineHits = []
+city.traverse(o => { if (o.userData && o.userData.type === 'shrine') shrineHits.push(o) })
+
+function showShrineDiscovery(id){
+  const s = SHRINES.find(x => x.id === id) || SHRINES[0]
+  const near = LOCATIONS.find(l => l.id === s.nearby)
+  $('disc-cat').textContent = s.cat
+  $('disc-title').textContent = s.title
+  $('disc-sub').textContent = s.sub
+  $('disc-context').textContent = s.context
+  $('disc-culture').textContent = s.culture
+  $('disc-etiquette').textContent = s.etiquette
+  $('disc-nearby').textContent = near ? near.name + ' — ' + s.nearbyWhy : '—'
+  const off = $('disc-official')
+  if (near && near.officialWebsite){ off.href = near.officialWebsite; off.hidden = false }
+  else off.hidden = true
+  $('disc-add').onclick = () => { addToItinerary(s.title + ' — ' + s.sub.split('· ').pop()); closeDiscovery() }
+  $('disc-atlas').onclick = () => { if (near){ closeDiscovery(); openAtlasOn(near) } }
+  $('discovery').classList.add('on')
+  document.body.classList.add('locked')
+  markDiscovery('shrine')
+}
+function closeDiscovery(){
+  $('discovery').classList.remove('on')
+  document.body.classList.remove('locked')
+}
+$('disc-close').addEventListener('click', closeDiscovery)
 
 /* ---------------------------- atmosphere --------------------------- */
 
@@ -2808,11 +3193,23 @@ function people_umbrellas(){
   })
 }
 
+/* The single place the camera is driven each frame. Reduced motion swaps the
+   travel function here and nowhere else, so there is no second animation path
+   that could bypass the preference. */
+function applyCamera(){
+  if (state.mode !== 'tour') return
+  if (REDUCED) camAtStatic(state.p)
+  else camAt(state.p)
+  camera.position.copy(camPos)
+  camera.lookAt(camLook)
+}
+
 let miniRedraw = 0
 let lastFrame = performance.now()
 
 function loop(now){
   requestAnimationFrame(loop)
+  state.frames++
   const dt = Math.min((now - lastFrame) / 1000, 0.05)
   lastFrame = now
   const t = now / 1000
@@ -2823,11 +3220,7 @@ function loop(now){
 
   atmosphere.update(dt, t)
 
-  if (state.mode === 'tour'){
-    camAt(state.p)
-    camera.position.copy(camPos)
-    camera.lookAt(camLook)
-  }
+  applyCamera()
 
   gradePass.uniforms.time.value = t
 
@@ -3023,6 +3416,7 @@ function loop(now){
   if (covered && !state.mapOpen) return
 
   composer.render()
+  state.rendered++
 }
 
 requestAnimationFrame(loop)
@@ -3045,7 +3439,11 @@ setTimeout(() => document.body.classList.add('ready'), 120)
 if (import.meta.env && import.meta.env.DEV){
   window.__yoru = {
     atmosphere, showLocation, openDialogue, closeDialogue, openAtlasOn, initMap,
-    submitUserText, LOCATIONS, PLACES, PEOPLE, DIALOGUE, state,
+    submitUserText, LOCATIONS, PLACES, PEOPLE, DIALOGUE, DISHES, SHRINES, state, TOUR,
+    camAt, camAtStatic, applyCamera, camera, showDish, buildDishRail,
+    showShrineDiscovery, closeDiscovery, closeLocation, shrineHits, scene, city,
+    addToItinerary, get itinerary(){ return itinerary },
+    get reduced(){ return REDUCED }, get camPos(){ return camPos },
     get map(){ return map }, get mapLoading(){ return mapLoading }
   }
 }

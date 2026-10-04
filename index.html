@@ -344,10 +344,14 @@ body.dlg-typing .dlg-type{display:flex}
 .dish-ja{font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:rgba(201,169,97,.8);margin:-2px 0 18px}
 .dish-links{display:flex;flex-direction:column;gap:9px;align-items:flex-start}
 
+/* ===================== discovery panel (shrine and friends) ========== */
+#discovery{position:fixed;z-index:200;left:50%;bottom:clamp(18px,4vh,52px);transform:translate(-50%,14px);width:min(620px,calc(100vw - 40px));max-height:min(78vh,720px);display:flex;flex-direction:column;overflow-y:auto;background:rgba(20,18,15,.97);backdrop-filter:blur(20px);border:1px solid var(--line);opacity:0;pointer-events:none;transition:opacity .45s,transform .45s;padding:30px clamp(24px,3vw,38px)}
+#discovery.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+
 /* ===================== mobile bottom sheets (§46) ===================== */
 @media (max-width:820px){
-  #dialogue,#location{left:0;right:0;bottom:0;top:auto;transform:translateY(18px);width:100%;max-width:100%;max-height:86vh;border-left:0;border-right:0;border-bottom:0}
-  #dialogue.on,#location.on{transform:none}
+  #dialogue,#location,#discovery{left:0;right:0;bottom:0;top:auto;transform:translateY(18px);width:100%;max-width:100%;max-height:86vh;border-left:0;border-right:0;border-bottom:0}
+  #dialogue.on,#location.on,#discovery.on{transform:none}
   .dlg-head{padding:20px 20px 0}
   .dlg-body,.dlg-opts{padding-left:20px;padding-right:20px}
   .dlg-type,.dlg-state,.dlg-tools{padding-left:20px;padding-right:20px}
@@ -508,6 +512,29 @@ body.dlg-typing .dlg-type{display:flex}
     </div>
     <div class="dish-links" id="dish-links"></div>
   </div>
+</section>
+
+<section id="discovery" role="dialog" aria-modal="false" aria-label="What is this?">
+  <div class="loc-head">
+    <div>
+      <div class="cat mono" id="disc-cat">What's this?</div>
+      <h3 id="disc-title"></h3>
+      <div class="district" id="disc-sub"></div>
+    </div>
+    <button class="dlg-close" id="disc-close" aria-label="Close discovery">×</button>
+  </div>
+  <div class="loc-body">
+    <p id="disc-context"></p>
+    <div class="row"><span class="k">Cultural context</span><span class="v" id="disc-culture"></span></div>
+    <div class="row"><span class="k">Etiquette</span><span class="v" id="disc-etiquette"></span></div>
+    <div class="row"><span class="k">Nearby, verified</span><span class="v" id="disc-nearby"></span></div>
+  </div>
+  <div class="loc-actions">
+    <button class="btn" id="disc-add">Add to my Tokyo →</button>
+    <button class="btn ghost" id="disc-atlas">Show on atlas →</button>
+    <a class="btn ghost" id="disc-official" target="_blank" rel="noopener">Official website ↗</a>
+  </div>
+  <p class="loc-note">Editorial guidance only. Confirm anything practical with the site itself.</p>
 </section>
 
 <section id="location" role="dialog" aria-modal="false" aria-label="Location details">
