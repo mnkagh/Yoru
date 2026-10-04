@@ -48,7 +48,7 @@ function run(scenario, extra = []){
 }
 
 const only = process.argv[2]
-const SCEN = ['reducedCamera', 'shrine', 'chef', 'atmosphereMatrix', 'transitions', 'districts', 'mobile', 'regression']
+const SCEN = ['reducedCamera', 'shrine', 'chef', 'foodDistrict', 'atmosphereMatrix', 'transitions', 'districts', 'mobile', 'regression']
 const list = only ? [only] : SCEN
 
 let all = []

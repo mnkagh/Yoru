@@ -6,6 +6,55 @@
 const SCENARIOS = {}
 
 /* ------------------------------------------------------------------ *
+ * 0. FOOD FOLLOWS THE DISTRICT                                          *
+ * ------------------------------------------------------------------ */
+SCENARIOS.foodDistrict = async ({ w, d, Y, $, rec, sleep }) => {
+  const y = Y()
+  enterSite(d)
+  await sleep(1200)
+
+  const railOrder = () => Array.from(d.querySelectorAll('#dish-rail button')).map(b => b.dataset.dish)
+  const caption = () => ($('dish-district') || {}).textContent || ''
+
+  // Tsukiji must lead with sushi and tempura
+  y.atmosphere.set({ district: 'tsukiji' })
+  y.refreshDishDistrict()
+  await sleep(200)
+  const tsu = railOrder()
+  rec('Tsukiji rail leads with sushi', tsu[0] === 'sushi', tsu.slice(0, 3).join(','))
+  rec('Tsukiji rail includes tempura up front', tsu.slice(0, 3).includes('tempura'), tsu.slice(0, 3).join(','))
+  rec('Tsukiji caption names the district', /tsukiji/i.test(caption()), caption().slice(0, 60))
+
+  // Asakusa must lead with wagashi and matcha
+  y.atmosphere.set({ district: 'asakusa' })
+  y.refreshDishDistrict()
+  await sleep(200)
+  const asa = railOrder()
+  rec('Asakusa rail leads with wagashi or matcha', asa[0] === 'wagashi' || asa[0] === 'matcha', asa.slice(0, 3).join(','))
+  rec('Asakusa caption names the district', /asakusa/i.test(caption()), caption().slice(0, 60))
+
+  // selecting a dish after reorder still highlights the right button (by id, not index)
+  const sushiBtn = d.querySelector('#dish-rail button[data-dish="sushi"]')
+  sushiBtn.click()
+  await sleep(300)
+  rec('selecting sushi shows sushi', ($('dish-name') || {}).textContent === 'Sushi')
+  const onBtn = d.querySelector('#dish-rail button.on')
+  rec('highlight follows the dish, not the position', onBtn && onBtn.dataset.dish === 'sushi',
+      onBtn ? onBtn.dataset.dish : 'none')
+
+  // SAVE MOMENT keeps a frame and counts it in the journal
+  const mBtn = $('nav-moment')
+  rec('save-moment control exists', !!mBtn)
+  if (mBtn){
+    const before = $('t-moments') ? parseInt(($('t-moments').textContent || '0'), 10) : 0
+    mBtn.click()
+    await sleep(600)
+    const after = $('t-moments') ? parseInt(($('t-moments').textContent || '0'), 10) : 0
+    rec('saving a moment counts it in My Tokyo', after === before + 1, before + ' -> ' + after)
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * 1. REDUCED MOTION — cinematic camera travel must genuinely stop     *
  * ------------------------------------------------------------------ */
 /* The intro gate is opaque and locks scrolling until ENTER TOKYO is pressed,

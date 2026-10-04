@@ -2456,45 +2456,74 @@ function replyWithVenue(id){
 /* ------------------------------ food ------------------------------ */
 
 const DISHES = [
-  { id:'ramen', ja:'ラーメン', n:'Ramen', cat:'Noodle', serve:'Poured from the pot in front of you. The broth is the dish; the toppings are a footnote.',
+  { id:'ramen', ja:'ラーメン', n:'Ramen', cat:'Noodle', districts:['shinjuku','nishishinjuku','shibuya','akihabara'], serve:'Poured from the pot in front of you. The broth is the dish; the toppings are a footnote.',
     ask:'Tonkotsu for a rich pork-bone broth, shoyu for a clear one, miso for depth. Menma, ajitama, chashu.',
     where:'Ramen Nagi in Shinjuku and Yoyogi, or the late-night counters under the tracks in Omoide Yokocho.',
     etq:'Slurping is encouraged and considered a compliment. Eat quickly — the noodle continues to cook in the bowl.' },
-  { id:'sushi', ja:'寿司', n:'Sushi', cat:'Seafood', serve:'Nigiri omakase, decided by the chef, or jai course ordered by the customer.',
+  { id:'sushi', ja:'寿司', n:'Sushi', cat:'Seafood', districts:['tsukiji','ginza','roppongi'], serve:'Nigiri omakase, decided by the chef, or jai course ordered by the customer.',
     ask:'Nigiri omakase, and whichever is seasonal. Edomae style favours neta-mare over vinegar.',
     where:'Sukiyabashi Jiro in Ginza for the counter experience; Sushi Saito in Roppongi for the reservation.',
     etq:'No wasabi in a traditional omakase — the chef wasabi is subtle. Eat the fish, not the rice.' },
-  { id:'tempura', ja:'天ぷら', n:'Tempura', cat:'Seafood', serve:'Fried to order, drained on paper, eaten immediately with salt or grated daikon.',
+  { id:'tempura', ja:'天ぷら', n:'Tempura', cat:'Seafood', districts:['ginza','tsukiji'], serve:'Fried to order, drained on paper, eaten immediately with salt or grated daikon.',
     ask:'Ebi, anago, seasonal white fish. Order the "awase" and let the kitchen choose.',
     where:'Tempura counters in Ginza and Nihonbashi; the standing-only places are usually the best.',
     etq:'Eat as it arrives. It does not travel. Dip sparingly — the prawn salt carries the flavour.' },
-  { id:'yakitori', ja:'焼鳥', n:'Yakitori', cat:'Meat', serve:'Skewers over binchōtan, cooked to order, with only salt or tare.',
+  { id:'yakitori', ja:'焼鳥', n:'Yakitori', cat:'Meat', districts:['shinjuku','nishishinjuku','shibuya'], serve:'Skewers over binchōtan, cooked to order, with only salt or tare.',
     ask:'The chicken, the liver, the tsukune, and the leek. Order by number.',
     where:'Ginza Birdland in Ginza, or any of the counters in Nonbei Yokocho in Shibuya.',
     etq:'Eat from the skewer, one at a time. Order slowly, and never rush the queue.' },
-  { id:'tonkatsu', ja:'とんかつ', n:'Tonkatsu', cat:'Meat', serve:'Breaded pork cutlet, sliced, with shredded cabbage and a dipping sauce.',
+  { id:'tonkatsu', ja:'とんかつ', n:'Tonkatsu', cat:'Meat', districts:['shibuya','shinjuku'], serve:'Breaded pork cutlet, sliced, with shredded cabbage and a dipping sauce.',
     ask:'The tenderloin cut, or the katsudon if you want it over rice.',
     where:'Maisen Aoyama Honten in Shibuya, and the branches across Tokyo.',
     etq:'The sauce is for the pork only. Dip the cabbage separately, or the cutlet softens.' },
-  { id:'wagashi', ja:'和菓子', n:'Wagashi', cat:'Sweet', serve:'Seasonal sweets arranged on lacquer and eaten with matcha.',
+  { id:'wagashi', ja:'和菓子', n:'Wagashi', cat:'Sweet', districts:['asakusa','ginza','nakameguro','harajuku'], serve:'Seasonal sweets arranged on lacquer and eaten with matcha.',
     ask:'Whatever is in season. In spring, sakura; in summer, watermelon and firefly jelly.',
     where:'Hama-no-Ya in Nihonbashi and Ginza for the classic style.',
     etq:'Seasonal confectionery is made to be eaten at one particular time of year. Ask what is right now.' },
-  { id:'matcha', ja:'抹茶', n:'Matcha', cat:'Tea', serve:'Whisked in a chawan with a chasen bamboo whisk, drunk as ceremony.',
+  { id:'matcha', ja:'抹茶', n:'Matcha', cat:'Tea', districts:['asakusa','nakameguro','harajuku','ginza'], serve:'Whisked in a chawan with a chasen bamboo whisk, drunk as ceremony.',
     ask:'Usucha for thin and foamy, koicha for thick and bitter. Ippodo sells the Kyoto blend.',
     where:'Ippodo Tea in Yanaka, or a kaiseki course where matcha arrives unbidden.',
     etq:'Drink promptly and in three small sips. Turn the bowl a quarter before setting it down.' },
-  { id:'sake', ja:'日本酒', n:'Sake', cat:'Drink', serve:'Chilled for junmai, warmed for genshu, and at body temperature for sairei.',
+  { id:'sake', ja:'日本酒', n:'Sake', cat:'Drink', districts:['shinjuku','nishishinjuku','roppongi','akihabara'], serve:'Chilled for junmai, warmed for genshu, and at body temperature for sairei.',
     ask:'Ask for the brewery\'s standard blend. Serve it in ochoko, never in a wine glass.',
     where:'Izakaya counters in Omoide Yokocho; Yamanote breweries tour from Tokyo.',
     etq:'Warm sake is served in a tokkuri. Never pour your own from the bottle on the table.' }
 ]
+
+/* Food follows the journey: the rail leads with what the current
+   district is known for, so Tsukiji suggests sushi before tonkatsu. */
+function refreshDishDistrict(){
+  const dk = (atmosphere.state.district || 'shinjuku').toLowerCase()
+  const rail = $('dish-rail')
+  if (!rail) return
+  const btns = Array.from(rail.querySelectorAll('button'))
+  btns.sort((a, b) => {
+    const da = DISHES.find(d => d.id === a.dataset.dish)
+    const db = DISHES.find(d => d.id === b.dataset.dish)
+    const ka = da && da.districts && da.districts.includes(dk) ? 0 : 1
+    const kb = db && db.districts && db.districts.includes(dk) ? 0 : 1
+    return ka - kb
+  })
+  btns.forEach(b => rail.appendChild(b))
+  const picks = DISHES.filter(d => d.districts && d.districts.includes(dk)).map(d => d.n)
+  let cap = $('dish-district')
+  if (!cap){
+    cap = document.createElement('p')
+    cap.id = 'dish-district'
+    cap.className = 'mono'
+    cap.style.cssText = 'font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--champagne);margin:0 0 14px'
+    rail.after(cap)
+  }
+  const dname = atmosphere.districtName ? atmosphere.districtName() : dk
+  cap.textContent = picks.length ? ('In ' + dname + ' now — ' + picks.join(' · ')) : ''
+}
 
 function buildDishRail(){
   const rail = $('dish-rail')
   DISHES.forEach((d, i) => {
     const b = document.createElement('button')
     b.textContent = d.n
+    b.dataset.dish = d.id
     b.setAttribute('role', 'tab')
     b.addEventListener('click', () => showDish(i))
     rail.appendChild(b)
@@ -3173,9 +3202,10 @@ function showDish(i){
     if (chef && chef.mesh) chef.mesh.userData.turned = performance.now() / 1000
   })
   $('dish-links').appendChild(chefBtn)
-  document.querySelectorAll('#dish-rail button').forEach((b, k) => {
-    b.classList.toggle('on', k === i)
-    b.setAttribute('aria-selected', String(k === i))
+  document.querySelectorAll('#dish-rail button').forEach(b => {
+    const on = b.dataset.dish === d.id
+    b.classList.toggle('on', on)
+    b.setAttribute('aria-selected', String(on))
   })
 }
 let toastTimer = null
@@ -3727,6 +3757,8 @@ const atmosphere = createAtmosphere({
   scene, camera, city, rain, rainGeo, rainMat, rainCount,
   gradePass, IS_TOUCH, REDUCED
 })
+/* food follows the journey: reorder the rail when the district changes */
+atmosphere.onChange(() => { try { refreshDishDistrict() } catch (e){} try { updateAudio() } catch (e){} })
 
 /* --- atmosphere control: two independent axes ---------------------------
    Time of day and weather are chosen separately, so Day+Rain and
@@ -3915,7 +3947,7 @@ heroEl.classList.remove('ready')
 
 /* ------------------------------ sound ----------------------------- */
 
-let soundOn = false, audioCtx = null, masterGain = null
+let soundOn = false, audioCtx = null, masterGain = null, rainGain = null, cityGain = null
 function initAudio(){
   if (audioCtx) return
   const AC = window.AudioContext || window.webkitAudioContext
@@ -3941,6 +3973,7 @@ function initAudio(){
   const rg = audioCtx.createGain(); rg.gain.value = 0.055
   rain.connect(rf); rf.connect(rg); rg.connect(masterGain)
   rain.start()
+  rainGain = rg
 
   const hum = audioCtx.createBufferSource()
   hum.buffer = mk(true); hum.loop = true
@@ -3949,12 +3982,25 @@ function initAudio(){
   const hg = audioCtx.createGain(); hg.gain.value = 0.11
   hum.connect(hf); hf.connect(hg); hg.connect(masterGain)
   hum.start()
+  cityGain = hg
 
   const sub = audioCtx.createOscillator()
   sub.type = 'sine'; sub.frequency.value = 47
   const sg = audioCtx.createGain(); sg.gain.value = 0.018
   sub.connect(sg); sg.connect(masterGain)
   sub.start()
+  updateAudio()
+}
+/* Layered ambience: CITY + DISTRICT (crowd) + WEATHER (rain) + TIME.
+   Rain hisses only when it rains; the city hum follows pedestrian
+   density (which carries the district) and lifts slightly at night. */
+function updateAudio(){
+  if (!audioCtx || !rainGain || !cityGain) return
+  const cur = atmosphere.state.cur
+  const t = audioCtx.currentTime
+  rainGain.gain.setTargetAtTime(0.055 * cur.rain, t, 0.8)
+  const nightK = cur.light < 0.62 ? 1.12 : 0.92
+  cityGain.gain.setTargetAtTime(0.11 * (0.45 + cur.pedDensity * 0.35) * nightK, t, 0.8)
 }
 function blip(){
   if (!audioCtx || !soundOn) return
@@ -4019,6 +4065,27 @@ function dismissHero(){
 $('nav-journey').addEventListener('click', () => window.scrollTo({ top: chaptersEl.offsetTop, behavior: 'smooth' }))
 $('nav-atlas').addEventListener('click', () => { initMap(); $('atlas').scrollIntoView({ behavior:'smooth' }) })
 $('nav-mine').addEventListener('click', () => $('itinerary').scrollIntoView({ behavior:'smooth' }))
+/* SAVE MOMENT: keep a cinematic frame. Render and read back in the same
+   task so the drawing buffer is valid without preserveDrawingBuffer. */
+$('nav-moment').addEventListener('click', () => {
+  composer.render()
+  let url = ''
+  try { url = renderer.domElement.toDataURL('image/png') } catch (e){ toast('This frame could not be saved'); return }
+  if (!url || url.length < 1000){ toast('This frame could not be saved'); return }
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'liminal-tokyo-' + stamp + '.png'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  chime()
+  toast('Moment saved')
+  try {
+    disc.moments.push({ t: Date.now(), label: atmosphere.label() + ' · ' + districtNow() })
+    renderTally(); renderJournal()
+  } catch (e){}
+})
 $('design').addEventListener('click', () => $('concierge').scrollIntoView({ behavior:'smooth' }))
 $('close-design').addEventListener('click', () => $('concierge').scrollIntoView({ behavior:'smooth' }))
 $('close-concierge').addEventListener('click', () => $('concierge').scrollIntoView({ behavior:'smooth' }))
@@ -4405,7 +4472,7 @@ if (import.meta.env && import.meta.env.DEV){
   window.__yoru = {
     atmosphere, showLocation, openDialogue, closeDialogue, openAtlasOn, initMap,
     submitUserText, LOCATIONS, PLACES, PEOPLE, DIALOGUE, DISHES, SHRINES, state, TOUR,
-    camAt, camAtStatic, applyCamera, camera, showDish, buildDishRail,
+    camAt, camAtStatic, applyCamera, camera, showDish, buildDishRail, refreshDishDistrict,
     showShrineDiscovery, closeDiscovery, closeLocation, shrineHits, scene, city,
     addToItinerary, get itinerary(){ return itinerary },
     get reduced(){ return REDUCED }, get camPos(){ return camPos },
