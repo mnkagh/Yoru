@@ -79,11 +79,14 @@ nav.solid{background:rgba(18,16,14,.82);backdrop-filter:blur(14px);border-bottom
 
 #tour{position:relative;z-index:10}
 #chapters{position:relative}
-.chapter{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:0 clamp(20px,8vw,120px);pointer-events:none}
-.chapter .idx{font-family:var(--mono);font-size:9.5px;letter-spacing:.3em;color:var(--champagne);margin-bottom:20px}
-.chapter h2{font-family:var(--serif);font-weight:300;font-size:clamp(30px,5.6vw,80px);line-height:1.04;max-width:17ch;text-transform:uppercase;letter-spacing:.005em}
+.chapter{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:110px clamp(20px,8vw,120px);pointer-events:none;position:relative;transition:opacity .6s ease}
+.chapter::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,rgba(10,9,8,.42),rgba(10,9,8,0) 62%)}
+.chapter.right::before{background:linear-gradient(270deg,rgba(10,9,8,.42),rgba(10,9,8,0) 62%)}
+.chapter.dim{opacity:.22}
+.chapter .idx{font-family:var(--mono);font-size:9.5px;letter-spacing:.3em;color:var(--champagne);margin-bottom:20px;position:relative;text-shadow:0 1px 10px rgba(0,0,0,.65)}
+.chapter h2{font-family:var(--serif);font-weight:300;font-size:clamp(30px,5.6vw,80px);line-height:1.04;max-width:17ch;text-transform:uppercase;letter-spacing:.005em;position:relative;text-wrap:balance;text-shadow:0 1px 16px rgba(0,0,0,.65),0 0 3px rgba(0,0,0,.5)}
 .chapter h2 em{font-style:italic;color:var(--champagne);text-transform:none}
-.chapter p{font-size:clamp(14px,1.5vw,17px);line-height:1.95;color:var(--ivory-dim);max-width:48ch;margin-top:26px}
+.chapter p{font-size:clamp(14px,1.5vw,17px);line-height:1.95;color:rgba(242,236,225,.84);max-width:48ch;margin-top:26px;position:relative;text-shadow:0 1px 12px rgba(0,0,0,.6)}
 .chapter.right{align-items:flex-end;text-align:right}
 .chapter.right h2,.chapter.right p{margin-left:auto}
 
@@ -274,7 +277,9 @@ footer a:hover,footer a:focus-visible{color:var(--champagne);border-bottom-color
   #location.on{transform:none}
   .dlg-head,.dlg-body,.dlg-opts,.dlg-tools{padding-left:20px;padding-right:20px}
   #rail{display:none}
-  .chapter{padding:0 20px}
+  .chapter{padding:96px 20px 120px}
+  .chapter h2{font-size:clamp(28px,9vw,44px)}
+  .chapter p{font-size:15px;max-width:100%}
   .con-bar{flex-wrap:wrap}
   .con-input{width:100%}
 }
@@ -285,10 +290,10 @@ body.reduced #cue .rule{animation:none;opacity:.6}
 
 /* ===================== atmosphere control (§1,§37) ===================== */
 #atmos{position:fixed;z-index:130;top:74px;right:clamp(12px,2vw,26px);display:flex;flex-direction:column;align-items:flex-end;gap:0}
-#atmos-toggle{display:flex;flex-direction:column;align-items:flex-end;gap:5px;background:rgba(18,16,14,.82);backdrop-filter:blur(12px);border:1px solid var(--line);padding:11px 15px;cursor:pointer;transition:border-color .3s,background-color .3s}
+#atmos-toggle{display:flex;flex-direction:column;align-items:flex-end;gap:5px;background:rgba(18,16,14,.82);backdrop-filter:blur(12px);border:1px solid var(--line);padding:11px 15px;cursor:pointer;transition:border-color .3s,background-color .3s;min-width:178px}
 #atmos-toggle:hover,#atmos-toggle:focus-visible{border-color:var(--champagne);outline:none}
-#atmos-label{font-size:8px;letter-spacing:.3em;color:var(--ivory-dim);text-transform:uppercase}
-.atmos-now{font-size:10px;letter-spacing:.2em;color:var(--champagne);text-transform:uppercase}
+#atmos-label{font-size:8px;letter-spacing:.3em;color:var(--ivory-dim);text-transform:uppercase;white-space:nowrap}
+.atmos-now{font-size:10px;letter-spacing:.2em;color:var(--champagne);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 #atmos-panel{margin-top:7px;width:min(252px,calc(100vw - 24px));background:rgba(20,18,15,.96);backdrop-filter:blur(18px);border:1px solid var(--line);padding:17px 17px 14px;display:flex;flex-direction:column;gap:15px;animation:panelIn .4s cubic-bezier(.16,1,.3,1)}
 #atmos-panel[hidden]{display:none}
 @keyframes panelIn{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
@@ -325,6 +330,8 @@ body.dlg-typing .dlg-type{display:flex}
 .loc-loading.gone{opacity:0}
 #loc-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .8s ease;display:block}
 #loc-img.in{opacity:1}
+#dish-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .8s ease;display:block}
+#dish-img.in{opacity:1}
 .loc-figure figcaption{font-size:7.5px;letter-spacing:.13em;color:rgba(242,236,225,.38);line-height:1.7}
 .loc-figure figcaption a{color:rgba(201,169,97,.75)}
 .loc-sources{margin-top:20px;border-top:1px solid var(--line);padding-top:13px}
@@ -332,6 +339,13 @@ body.dlg-typing .dlg-type{display:flex}
 .loc-sources ul{margin:11px 0 0;padding-left:17px}
 .loc-sources li{font-family:var(--mono);font-size:8px;letter-spacing:.08em;color:rgba(242,236,225,.42);line-height:1.9}
 .loc-figure-frame.plain .loc-loading{display:none}
+
+/* film moment inside the location panel (§28): lazy, muted, user-started */
+#loc-media{margin:0 0 18px}
+#loc-media[hidden]{display:none}
+#loc-video{width:100%;display:block;background:#000;border:1px solid var(--line)}
+#loc-video-credit{font-size:7.5px;letter-spacing:.18em;color:rgba(242,236,225,.5);text-transform:uppercase;margin-top:8px;line-height:1.8}
+#loc-video-credit a{color:var(--champagne)}
 
 /* food link inside the location panel (§30) */
 #loc-dish{padding:14px 16px;border:1px solid var(--line);background:rgba(0,0,0,.16);align-items:center}
@@ -417,12 +431,20 @@ body.dlg-typing .dlg-type{display:flex}
     <div class="atmos-group">
       <span class="atmos-key mono">Weather</span>
       <div class="atmos-opts" id="atmos-weathers" role="group" aria-label="Weather">
-        <button type="button" data-w="sunny" class="on">Clear</button>
-        <button type="button" data-w="rain">Rain</button>
-        <button type="button" data-w="snow">Snow</button>
-        <button type="button" data-w="spring">Sakura</button>
+          <button type="button" data-w="sunny" class="on">Clear</button>
+          <button type="button" data-w="rain">Rain</button>
+          <button type="button" data-w="snow">Snow</button>
+          <button type="button" data-w="spring">Sakura</button>
+        </div>
       </div>
-    </div>
+      <div class="atmos-group">
+        <span class="atmos-key mono">Rainfall</span>
+        <div class="atmos-opts small" id="atmos-rainfall" role="group" aria-label="Rainfall intensity">
+          <button type="button" data-r="0.45">Light</button>
+          <button type="button" data-r="1" class="on">Medium</button>
+          <button type="button" data-r="1.7">Heavy</button>
+        </div>
+      </div>
     <div class="atmos-group">
       <span class="atmos-key mono">Change every</span>
       <div class="atmos-opts small" id="atmos-auto" role="group" aria-label="Automatic atmosphere change">
@@ -563,14 +585,18 @@ body.dlg-typing .dlg-type{display:flex}
     <button class="dlg-close" id="loc-close" aria-label="Close location">×</button>
   </div>
   <figure class="loc-figure" id="loc-figure">
-    <div class="loc-figure-frame" id="loc-frame">
-      <canvas class="loc-fallback" id="loc-fallback" aria-hidden="true"></canvas>
+      <div class="loc-figure-frame" id="loc-frame">
+        <canvas class="loc-fallback" id="loc-fallback" aria-hidden="true"></canvas>
       <span class="loc-loading mono" id="loc-loading">Loading experience…</span>
       <img id="loc-img" alt="" />
     </div>
     <figcaption class="mono" id="loc-credit" hidden></figcaption>
-  </figure>
-  <div class="loc-body">
+    </figure>
+    <div id="loc-media" hidden>
+      <video id="loc-video" controls muted playsinline preload="none"></video>
+      <div class="mono" id="loc-video-credit"></div>
+    </div>
+    <div class="loc-body">
     <p id="loc-desc"></p>
     <div class="row"><span class="k">Famous for</span><span class="v" id="loc-famous"></span></div>
     <div class="row"><span class="k">Signature</span><span class="v" id="loc-food"></span></div>

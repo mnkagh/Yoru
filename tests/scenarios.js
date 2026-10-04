@@ -6,6 +6,161 @@
 const SCENARIOS = {}
 
 /* ------------------------------------------------------------------ *
+ * RAIN IS VISIBLE, WET IS REAL, UMBRELLAS OPEN                         *
+ * ------------------------------------------------------------------ */
+SCENARIOS.rain = async ({ w, d, Y, $, rec, sleep }) => {
+  const y = Y()
+  enterSite(d)
+  await sleep(1200)
+  /* deterministic: snap the atmosphere, then pump the real per-frame
+     logic directly instead of depending on headless rAF pacing */
+  const settle = (weather, time = 'day') => {
+    y.atmosphere.set({ time, weather }, true)
+    for (let i = 0; i < 40; i++) y.tick(1/60, 1000 + i/60)
+  }
+
+  // dry baseline: no rain layers, no umbrellas
+  settle('sunny')
+  rec('dry: rain points hidden', y.rain.visible === false, String(y.rain.visible))
+  rec('dry: streaks hidden', y.streaks.visible === false, String(y.streaks.visible))
+  const dryUmb = y.peds.filter(p => p.userData.umbrella && p.userData.umbrella.visible).length
+  rec('dry: no umbrellas open', dryUmb === 0, dryUmb + ' open')
+
+  // rain: layers appear, rain actually falls, umbrellas open
+  settle('rain')
+  rec('rain: rain points visible', y.rain.visible === true, String(y.rain.visible))
+  rec('rain: streak layer visible', y.streaks.visible === true, String(y.streaks.visible))
+  const wetUmb = y.peds.filter(p => p.userData.umbrella && p.userData.umbrella.visible).length
+  const hasUmb = y.peds.filter(p => p.userData.umbrella).length
+  rec('rain: umbrellas open', wetUmb > 0, wetUmb + '/' + hasUmb + ' open')
+
+  // rainfall intensity scales the streak opacity
+  const med = y.streakMat.opacity
+  const heavyBtn = d.querySelector('#atmos-rainfall button[data-r="1.7"]')
+  rec('rainfall control exists', !!heavyBtn)
+  if (heavyBtn){
+    heavyBtn.click()
+    for (let i = 0; i < 10; i++) y.tick(1/60, 2000 + i/60)
+    rec('heavy rain reads stronger than medium', y.streakMat.opacity > med,
+        med.toFixed(3) + ' -> ' + y.streakMat.opacity.toFixed(3))
+    rec('rain level stored', y.rainLevel === 1.7, String(y.rainLevel))
+  }
+
+  // snow darkens clothing (coats)
+  settle('snow')
+  const coated = y.peds.filter(p => {
+    const u = p.userData
+    if (!u.baseCol || !u.bodyMat) return false
+    return u.bodyMat.color.getHex() !== u.baseCol.getHex()
+  }).length
+  rec('snow: clothing shifts toward coats', coated > 0, coated + ' peds shifted')
+}
+
+/* ------------------------------------------------------------------ *
+ * DISCOVERIES, INFO PANELS, CAT, REAL MEDIA                            *
+ * ------------------------------------------------------------------ */
+SCENARIOS.discoveries = async ({ w, d, Y, $, rec, sleep }) => {
+  const y = Y()
+  enterSite(d)
+  await sleep(1200)
+  const closePanels = () => {
+    ;['discovery', 'location'].forEach(id => $(id) && $(id).classList.remove('on'))
+    document.body.classList.remove('locked')
+  }
+
+  // sign and train clicks used to throw (showMoment was never defined)
+  let threw = false
+  try { y.showMoment('SIGN', 'RAMEN', 'ramen — ラーメン') } catch (e){ threw = true }
+  await sleep(200)
+  rec('sign opens an info panel without throwing', !threw && $('discovery').classList.contains('on'))
+  rec('sign panel translates the street', /RAMEN/.test(($('disc-title') || {}).textContent || '') &&
+      /top to bottom|kanji/i.test(($('disc-context') || {}).textContent || ''),
+      (($('disc-context') || {}).textContent || '').slice(0, 60))
+  rec('sign panel carries etiquette', (($('disc-etiquette') || {}).textContent || '').length > 40)
+  closePanels()
+
+  try { y.showMoment('TRAIN', 'RAIL LINE', 'every few minutes') } catch (e){ threw = true }
+  await sleep(200)
+  rec('train opens an info panel without throwing', !threw && $('discovery').classList.contains('on'))
+  rec('train panel explains the city', (($('disc-culture') || {}).textContent || '').length > 80)
+  closePanels()
+
+  y.showMoment('VENDING', 'JIHANKI', 'Something cold.')
+  await sleep(200)
+  rec('vending opens an info panel', $('discovery').classList.contains('on'))
+  rec('vending panel has cultural context', (($('disc-culture') || {}).textContent || '').length > 60)
+  closePanels()
+
+  // cat exists, and wanders back after disappearing
+  rec('cat exists in the world', !!y.cat && !!y.cat.parent)
+  y.cat.visible = false
+  y.cat.userData.gone = 70
+  for (let i = 0; i < 10; i++) y.tick(1/60, 100 + i/60)
+  rec('cat wanders back on its own', y.cat.visible === true && y.cat.userData.running === false)
+
+  // ramen carries its verified photograph with credit
+  const ramen = y.DISHES.find(x => x.id === 'ramen')
+  rec('ramen has a verified photo URL', /Special:FilePath|upload\.wikimedia/.test(ramen.image || ''), (ramen.image || '').slice(0, 70))
+  rec('ramen photo is credited', /Quercus acuta/.test(ramen.imageCredit || ''), ramen.imageCredit || '')
+  y.buildDishRail()
+  y.showDish(y.DISHES.findIndex(x => x.id === 'ramen'))
+  await sleep(300)
+  rec('ramen credit renders in the panel', /Quercus acuta/.test(($('dish-credit') || {}).textContent || ''))
+
+  // Nonbei Yokocho carries the Shibuya film moment
+  y.showLocation('nonbei')
+  await sleep(300)
+  rec('location film moment is wired', ($('loc-video') || {}).src.includes('upload.wikimedia.org'),
+      (($('loc-video') || {}).src || '').slice(0, 70))
+  rec('film moment is credited', /Basile Morin/.test(($('loc-video-credit') || {}).textContent || ''))
+  rec('film stays lazy until play', ($('loc-video') || {}).preload === 'none')
+  y.closeLocation()
+
+  // MEDIA registry: configured entries only, nothing invented
+  const M = y.MEDIA
+  rec('media registry loads', !!M && !!M.shibuya && !!M.asakusa && !!M.ramen && !!M.sakura && !!M.audio)
+  if (M){
+    rec('shibuya film is a verified file', /^https:\/\/upload\.wikimedia\.org\//.test(M.shibuya.video.url || ''))
+    rec('asakusa 4K is linked, not streamed', !M.asakusa.video.url && /commons\.wikimedia/.test(M.asakusa.video.source || ''))
+    rec('tokyo audio is linked, not forced', !M.audio.tokyo.url && /pixabay/.test(M.audio.tokyo.source || ''))
+    const withUrl = [M.shibuya.image, M.shibuya.video, M.ramen.image]
+    rec('every embedded file keeps source, licence and credit',
+        withUrl.every(e => e && e.url && e.source && e.license && e.credit))
+  }
+  closePanels()
+}
+
+/* ------------------------------------------------------------------ *
+ * SAKURA: TREES STAND YEAR-ROUND, BLOSSOM COMES IN SPRING              *
+ * ------------------------------------------------------------------ */
+SCENARIOS.sakura = async ({ w, d, Y, $, rec, sleep }) => {
+  const y = Y()
+  enterSite(d)
+  await sleep(1200)
+  const settle = (weather, time = 'day') => {
+    y.atmosphere.set({ time, weather }, true)
+    for (let i = 0; i < 40; i++) y.tick(1/60, 3000 + i/60)
+  }
+  const cherry = y.atmosphere.cherry || []
+  rec('cherry trees exist along the walk', cherry.length >= 7, cherry.length + ' trees')
+
+  // spring: blossom full, petals drifting
+  settle('spring')
+  const bloom = cherry.map(t => t.userData.mat.opacity)
+  rec('spring: canopies in full blossom', bloom.every(o => o > 0.8),
+      'min ' + Math.min(...bloom).toFixed(2))
+  const naka = cherry.filter(t => t.position.z < -56 && t.position.z > -67).length
+  rec('Nakameguro river keeps its blossom cluster', naka >= 3, naka + ' by the river')
+
+  // winter: trunks still stand, blossom rests
+  settle('snow')
+  rec('off-season: trees still stand', cherry.every(t => t.visible), 'all visible')
+  const rest = cherry.map(t => t.userData.mat.opacity)
+  rec('off-season: blossom rests', rest.every(o => o < 0.3),
+      'max ' + Math.max(...rest).toFixed(2))
+}
+
+/* ------------------------------------------------------------------ *
  * 0. FOOD FOLLOWS THE DISTRICT                                          *
  * ------------------------------------------------------------------ */
 SCENARIOS.foodDistrict = async ({ w, d, Y, $, rec, sleep }) => {

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import maplibregl from 'maplibre-gl'
 import { createAtmosphere } from './atmosphere.js'
+import { MEDIA } from './media.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -525,7 +526,7 @@ function makePed(zone){
   /* archetype variation: height and build differ, so no two silhouettes match */
   const ps = 0.9 + Math.random() * 0.2
   g.scale.set(ps * (0.94 + Math.random() * 0.12), ps, ps)
-  g.userData = { head, zone, dir: Math.random()<0.5?1:-1, speed: 0.35+Math.random()*0.55, lookT: 0, bob: Math.random()*10, type:'ped' }
+  g.userData = { head, zone, dir: Math.random()<0.5?1:-1, speed: 0.35+Math.random()*0.55, lookT: 0, bob: Math.random()*10, type:'ped', bodyMat: mat, baseCol: col.clone() }
   city.add(g)
   peds.push(g)
 }
@@ -686,19 +687,23 @@ const rain = new THREE.Points(rainGeo, rainMat)
 camera.add(rain)
 scene.add(camera)
 
+/* Rain streaks: depth-aware lines. Near the camera they are short and
+   fast; far away they stretch long and slow. This replaces an unused
+   static glow-points object (opacity was always 0), so nothing regresses. */
+const streakN = IS_TOUCH ? 130 : 320
+const streakBase = new Float32Array(streakN*3)
 const streakGeo = new THREE.BufferGeometry()
-const streakCount = 36
-const streakPos = new Float32Array(streakCount*3)
-const streakSeed = []
-for(let i=0;i<streakCount;i++){
-  streakPos[i*3] = (Math.random()-0.5)*16
-  streakPos[i*3+1] = Math.random()*5 - 1
-  streakPos[i*3+2] = -40 + Math.random()*45
-  streakSeed.push(20+Math.random()*30)
+const streakPos = new Float32Array(streakN*6)
+for (let i=0;i<streakN;i++){
+  streakBase[i*3] = (Math.random()-0.5)*36
+  streakBase[i*3+1] = Math.random()*24
+  streakBase[i*3+2] = -35 + Math.random()*44
 }
 streakGeo.setAttribute('position', new THREE.BufferAttribute(streakPos, 3))
-const streakMat = new THREE.PointsMaterial({ color: 0xffd9a0, size: 0.35, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })
-const streaks = new THREE.Points(streakGeo, streakMat)
+const streakMat = new THREE.LineBasicMaterial({ color: 0x9fb4d8, transparent: true, opacity: 0, depthWrite: false })
+const streaks = new THREE.LineSegments(streakGeo, streakMat)
+streaks.frustumCulled = false
+streaks.visible = false
 camera.add(streaks)
 
 
@@ -2002,7 +2007,11 @@ const LOCATIONS = [
     image:'https://upload.wikimedia.org/wikipedia/commons/a/a4/Shibuya_Nonbei_Yokocho_%2853330131727%29.jpg',
     imageCredit:'Dick Thomas Johnson', imageLicence:'CC BY 2.0',
     imagePage:'https://commons.wikimedia.org/wiki/File:Shibuya_Nonbei_Yokocho_(53330131727).jpg',
-    sources:['Official site: nonbei.tokyo'] },
+    videoUrl: MEDIA.shibuya.video.url, videoPoster: MEDIA.shibuya.video.poster,
+    videoCredit: MEDIA.shibuya.video.credit, videoLicence: MEDIA.shibuya.video.license,
+    videoPage: MEDIA.shibuya.video.source,
+    sources:['Official site: nonbei.tokyo',
+      'Shibuya guide: <a href="https://www.gotokyo.org/en/destinations/western-tokyo/shibuya/index.html" target="_blank" rel="noopener">gotokyo.org ↗</a>'] },
   { id:'omoide', name:'Omoide Yokocho', nameJa:'思い出横丁', cat:'Nightlife', ward:'Nishi-Shinjuku, Shinjuku City',
     addr:'1-2 Nishi-Shinjuku, Shinjuku-ku', lat:35.6918, lng:139.7030,
     cuisine:'Izakayas under the tracks', famous:'Yakitori, tachinomi, and a lantern-lit walkway beside the railway.',
@@ -2038,7 +2047,9 @@ const LOCATIONS = [
     image:'https://upload.wikimedia.org/wikipedia/commons/1/10/Main_Hall%2C_Sens%C5%8D-ji_Temple%2C_Tokyo%2C_20240824_1104_5619.jpg',
     imageCredit:'Jakub Halun', imageLicence:'CC BY 4.0',
     imagePage:'https://commons.wikimedia.org/wiki/File:Main_Hall,_Sensō-ji_Temple,_Tokyo,_20240824_1104_5619.jpg',
-    sources:['Official site: senso-ji.jp (English page confirms 2-3-1 Asakusa)'] },
+    sources:['Official site: senso-ji.jp (English page confirms 2-3-1 Asakusa)',
+      'Asakusa guide: <a href="https://www.japan.travel/en/destinations/kanto/tokyo/asakusa-and-around/" target="_blank" rel="noopener">japan.travel ↗</a>',
+      'Night-ride footage (4K, opens on Commons): <a href="https://commons.wikimedia.org/wiki/File:4K_Tokyo_Night_Riding_Highway_Tour_in_Asakusa_-_Motorcycle_%26_Walking_Travel_in_Japan.webm" target="_blank" rel="noopener">Kaminarimon by bike ↗</a> (Japan Travel Rec, CC BY 3.0)'] },
   { id:'meiji', name:'Meiji Jingu', nameJa:'明治神宮', cat:'Culture', ward:'Yoyogi, Shibuya City',
     addr:'1-1 Yoyogikamizonocho, Shibuya-ku', lat:35.6764, lng:139.6993,
     cuisine:'—', famous:'A forest of over a hundred thousand donated trees, one hundred metres from Shibuya.',
@@ -2188,6 +2199,20 @@ function showLocation(id){
   drawFallbackArt($('loc-fallback'), l)
   loadLocationImage(l)
 
+  /* film moment (§28): lazy, muted, user-started; nothing loads until play.
+     Entries without an embeddable file keep their out-link in sources. */
+  const mw = $('loc-media'), vid = $('loc-video'), vc = $('loc-video-credit')
+  try { vid.pause() } catch (e){}
+  vid.removeAttribute('src'); vid.removeAttribute('poster')
+  if (l.videoUrl){
+    mw.hidden = false
+    if (l.videoPoster) vid.poster = l.videoPoster
+    vid.src = l.videoUrl
+    vid.load()
+    vc.innerHTML = 'Footage: ' + (l.videoCredit || 'Wikimedia Commons') + ' · ' + (l.videoLicence || '') +
+      (l.videoPage ? ' · <a href="' + l.videoPage + '" target="_blank" rel="noopener">file page ↗</a>' : '')
+  } else mw.hidden = true
+
   /* links: only ever real (§28) */
   $('loc-map').href = gmaps(l.lat, l.lng, l.name)
   const off = $('loc-official')
@@ -2251,6 +2276,10 @@ function openAtlasOn(l){
 function closeLocation(){
   $('location').classList.remove('on')
   document.body.classList.remove('locked')
+  try {
+    const vid = $('loc-video')
+    vid.pause(); vid.removeAttribute('src'); vid.removeAttribute('poster'); vid.load()
+  } catch (e){}
 }
 $('loc-close').addEventListener('click', closeLocation)
 
@@ -2459,7 +2488,10 @@ const DISHES = [
   { id:'ramen', ja:'ラーメン', n:'Ramen', cat:'Noodle', districts:['shinjuku','nishishinjuku','shibuya','akihabara'], serve:'Poured from the pot in front of you. The broth is the dish; the toppings are a footnote.',
     ask:'Tonkotsu for a rich pork-bone broth, shoyu for a clear one, miso for depth. Menma, ajitama, chashu.',
     where:'Ramen Nagi in Shinjuku and Yoyogi, or the late-night counters under the tracks in Omoide Yokocho.',
-    etq:'Slurping is encouraged and considered a compliment. Eat quickly — the noodle continues to cook in the bowl.' },
+    etq:'Slurping is encouraged and considered a compliment. Eat quickly — the noodle continues to cook in the bowl.',
+    image: MEDIA.ramen.image.url,
+    imageCredit: MEDIA.ramen.image.credit, imageLicence: MEDIA.ramen.image.license,
+    imagePage: MEDIA.ramen.image.source },
   { id:'sushi', ja:'寿司', n:'Sushi', cat:'Seafood', districts:['tsukiji','ginza','roppongi'], serve:'Nigiri omakase, decided by the chef, or jai course ordered by the customer.',
     ask:'Nigiri omakase, and whichever is seasonal. Edomae style favours neta-mare over vinegar.',
     where:'Sukiyabashi Jiro in Ginza for the counter experience; Sushi Saito in Roppongi for the reservation.',
@@ -3423,10 +3455,10 @@ window.addEventListener('pointerdown', e => {
     return
   }
   if (type === 'vending'){
-    /* lights come up (§41) */
+    /* lights come up, then the panel explains what you are looking at */
     ref.userData.secret = true
     ref.userData.clicks = (ref.userData.clicks || 0) + 1
-    toast('Something cold. Take the change with you.')
+    showMoment('VENDING', 'JIHANKI', 'Something cold. Take the change with you.')
     return
   }
   if (type === 'sign'){
@@ -3745,11 +3777,52 @@ function showShrineDiscovery(id){
   document.body.classList.add('locked')
   markDiscovery('shrine')
 }
-function closeDiscovery(){
-  $('discovery').classList.remove('on')
-  document.body.classList.remove('locked')
-}
-$('disc-close').addEventListener('click', closeDiscovery)
+  function closeDiscovery(){
+    $('discovery').classList.remove('on')
+    document.body.classList.remove('locked')
+  }
+  $('disc-close').addEventListener('click', closeDiscovery)
+
+  /* Small observations: WHAT IS THIS for the street-level discoveries.
+     This also defines showMoment, which sign and train clicks already
+     called — without it those clicks threw. Short, useful, verified. */
+  const DISCOVERY_INFO = {
+    SIGN: { cat:'Street reading',
+      sub:'Neon, read properly.',
+      context:'Vertical signs are read top to bottom, right to left. A single kanji does the work of a sentence: 酒 is sake, 喫茶 is a coffee shop, 24時間 means it never closes.',
+      culture:'After dark the sign is the storefront. Shops spend more on the tube work than the interior, because the street decides in three seconds.',
+      etiquette:'Photographs are welcome from the street. Step inside only if you mean to stay.',
+      nearby:'' },
+    TRAIN: { cat:'Rail line',
+      sub:'The city runs on this.',
+      context:'The elevated tracks carry the Yamanote and Chuo lines — the loop and the artery. Trains run every few minutes from around five in the morning until just past midnight.',
+      culture:'Tokyo is a rail city first and a road city second. Districts are spaced by stations, and last-train time quietly sets the length of every evening.',
+      etiquette:'Queue at the floor marks, let people off first, and keep the car silent: no calls, headphones on, backpacks off your back.',
+      nearby:'' },
+    VENDING: { cat:'Street object',
+      sub:'Jihanki — the vending machine.',
+      context:'Japan keeps over four million vending machines: hot coffee in winter, cold tea in summer, umbrellas and batteries in between. They run all night, unguarded, everywhere.',
+      culture:'The machine works because the street is trusted. It is infrastructure the way a lamppost is — nobody thinks about it until it is gone.',
+      etiquette:'Drink beside the machine and drop the can in its own recycling bin. The bin belongs to that machine; carry your rubbish otherwise.',
+      nearby:'' }
+  }
+  function showMoment(kind, title, body){
+    const info = DISCOVERY_INFO[kind] || {}
+    $('disc-cat').textContent = info.cat || 'Noticed'
+    $('disc-title').textContent = title
+    $('disc-sub').textContent = info.sub || body || ''
+    $('disc-context').textContent = info.context || body || ''
+    $('disc-culture').textContent = info.culture || ''
+    $('disc-etiquette').textContent = info.etiquette || ''
+    $('disc-nearby').textContent = info.nearby || ''
+    const off = $('disc-official')
+    if (off) off.hidden = true
+    $('disc-add').onclick = () => { addToItinerary(title); closeDiscovery() }
+    $('disc-atlas').onclick = () => { closeDiscovery() }
+    $('discovery').classList.add('on')
+    document.body.classList.add('locked')
+    try { markDiscovery(kind.toLowerCase()) } catch (e){}
+  }
 
 /* ---------------------------- atmosphere --------------------------- */
 
@@ -3788,9 +3861,18 @@ atmosToggle.addEventListener('click', () => {
 atmosTimes.querySelectorAll('button').forEach(b => {
   b.addEventListener('click', () => atmosphere.set({ time: b.dataset.t }))
 })
-atmosWeathers.querySelectorAll('button').forEach(b => {
-  b.addEventListener('click', () => atmosphere.set({ weather: b.dataset.w }))
-})
+  atmosWeathers.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => atmosphere.set({ weather: b.dataset.w }))
+  })
+
+  /* rainfall intensity: light / medium / heavy scales the falling rain */
+  const atmosRainfall = $('atmos-rainfall')
+  if (atmosRainfall) atmosRainfall.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => {
+      state.rainLevel = parseFloat(b.dataset.r) || 1
+      atmosRainfall.querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b))
+    })
+  })
 
 const AUTO_COPY = {
   off: 'You choose the time of day and the weather.',
@@ -4115,6 +4197,13 @@ window.addEventListener('scroll', () => {
     if (dn.textContent !== cur.district) dn.textContent = cur.district
     /* the district you are in changes how this weather reads */
     if (cur.district !== lastDistrict){ lastDistrict = cur.district; atmosDistrict(cur.district) }
+    /* §9: only the active chapter is dominant; the rest recede so text
+       blocks never stack visually over one another */
+    try {
+      const ci = TOUR.indexOf(cur)
+      const kids = chaptersEl.children
+      for (let k = 0; k < kids.length; k++) kids[k].classList.toggle('dim', k !== ci)
+    } catch (e){}
     checkMoment(p)
     CITY_MARKS.forEach(m => {
       if (m.passed) return
@@ -4161,13 +4250,15 @@ const trafficLight = (() => {
 people_umbrellas()
 
 function people_umbrellas(){
+  const cols = [0x1a1714, 0x1a1714, 0x5a1f24, 0x1f3a5a, 0x3a3a40, 0x6b5a3e]
   peds.forEach(p => {
     if (Math.random() < 0.45){
       const um = new THREE.Mesh(
         new THREE.ConeGeometry(0.52, 0.3, 10, 1, true),
-        new THREE.MeshBasicMaterial({ color: 0x1a1714, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+        new THREE.MeshBasicMaterial({ color: cols[(Math.random() * cols.length) | 0], transparent: true, opacity: 0.9, side: THREE.DoubleSide })
       )
       um.position.y = 1.62
+      um.visible = false
       p.add(um)
       p.userData.umbrella = um
     }
@@ -4241,8 +4332,53 @@ function updateWorld(dt, t, doRender = true){
     if (p.position.x < u.zone.x[0]) { p.position.x = u.zone.x[0]; u.dir = 1 }
     p.rotation.y = u.dir > 0 ? Math.PI / 2 : -Math.PI / 2
     if (!REDUCED) p.position.y = Math.abs(Math.sin((t + u.bob) * 5)) * 0.03
-    if (u.umbrella) u.umbrella.rotation.z = Math.sin(t * 1.4 + u.bob) * 0.03
+    if (u.umbrella){
+      /* umbrellas open only when it rains (§16) */
+      u.umbrella.visible = atm.rain > 0.3
+      u.umbrella.rotation.z = Math.sin(t * 1.4 + u.bob) * 0.03
+    }
+    /* coats in snow, lighter cloth in spring (§16): tint the shared
+       body material from its stored base, cheap for ~16 pedestrians */
+    if (u.baseCol && u.bodyMat){
+      if (atm.snow > 0.3) u.bodyMat.color.copy(u.baseCol).multiplyScalar(0.55)
+      else if (atm.petal > 0.3) u.bodyMat.color.copy(u.baseCol).multiplyScalar(1.22)
+      else u.bodyMat.color.copy(u.baseCol)
+    }
   })
+
+  /* rain actually falls: the points drift down and the streaks stretch
+     by depth. Reduced motion keeps the rain visible but still. */
+  {
+    const lvl = state.rainLevel || 1
+    const showRain = atm.rain > 0.02
+    rain.visible = showRain
+    streaks.visible = showRain && !REDUCED
+    if (showRain){
+      rainMat.opacity = Math.min(0.62, (0.30 + 0.20 * lvl)) * atm.rain
+      if (!REDUCED){
+        const rs = 10 * dt * (0.7 + 0.3 * lvl)
+        for (let i = 0; i < rainCount; i++){
+          let y = rainPos[i*3+1] - rs
+          if (y < 0) y += 26
+          rainPos[i*3+1] = y
+        }
+        rainGeo.attributes.position.needsUpdate = true
+        streakMat.opacity = Math.min(0.66, 0.5 * lvl) * atm.rain
+        for (let i = 0; i < streakN; i++){
+          const bx = streakBase[i*3], bz = streakBase[i*3+2]
+          const nearK = clamp(1 - Math.max(0, -bz) / 30, 0.12, 1)
+          let y = streakBase[i*3+1] - (12 + 10 * nearK) * dt * (0.7 + 0.3 * lvl)
+          if (y < 0) y += 24
+          streakBase[i*3+1] = y
+          const len = 0.3 + 0.9 * (1 - nearK)
+          const o = i * 6
+          streakPos[o] = bx; streakPos[o+1] = y; streakPos[o+2] = bz
+          streakPos[o+3] = bx + 0.05; streakPos[o+4] = y - len; streakPos[o+5] = bz
+        }
+        streakGeo.attributes.position.needsUpdate = true
+      }
+    }
+  }
 
   PEOPLE.forEach(p => {
     if (!p.mesh) return
@@ -4381,7 +4517,18 @@ function updateWorld(dt, t, doRender = true){
   } else {
     cat.position.x += cat.userData.dir * cat.userData.speed * dt
     tail.rotation.z = Math.sin(t * 22) * 0.6
-    if (Math.abs(cat.position.x) > 7){ cat.visible = false; catHit.visible = false }
+    if (Math.abs(cat.position.x) > 7){
+      cat.visible = false; catHit.visible = false
+      cat.userData.gone = t
+    }
+  }
+  /* the cat wanders back: gone a while, it reappears down the street */
+  if (!cat.visible && cat.userData.gone && t - cat.userData.gone > 25){
+    cat.userData.running = false
+    cat.userData.gone = 0
+    cat.position.set((Math.random() - 0.5) * 6, 0, -70 + (Math.random() - 0.5) * 8)
+    catHit.position.copy(cat.position); catHit.position.y = 0.3
+    cat.visible = true; catHit.visible = true
   }
 
   symbol.material.opacity = 0.62 + Math.sin(t * 1.6) * 0.16
@@ -4474,9 +4621,12 @@ if (import.meta.env && import.meta.env.DEV){
     submitUserText, LOCATIONS, PLACES, PEOPLE, DIALOGUE, DISHES, SHRINES, state, TOUR,
     camAt, camAtStatic, applyCamera, camera, showDish, buildDishRail, refreshDishDistrict,
     showShrineDiscovery, closeDiscovery, closeLocation, shrineHits, scene, city,
-    addToItinerary, get itinerary(){ return itinerary },
-    get reduced(){ return REDUCED }, get camPos(){ return camPos },
-    get map(){ return map }, get mapLoading(){ return mapLoading }
+    showMoment, MEDIA,
+    addToItinerary, get itinerary(){ return itinerary },    get reduced(){ return REDUCED }, get camPos(){ return camPos },
+    get map(){ return map }, get mapLoading(){ return mapLoading },
+    rain, streaks, streakMat, peds, cat, get rainLevel(){ return state.rainLevel || 1 },
+    /* deterministic test pump: advance the exact per-frame logic without rAF */
+    tick(dt, t){ updateWorld(dt == null ? 1/60 : dt, t == null ? tGlobal + 1/60 : t, false) }
   }
 }
 

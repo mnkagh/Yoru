@@ -208,30 +208,50 @@ export function createAtmosphere(ctx){
   snow.frustumCulled = petals.frustumCulled = false
   camera.add(snow); camera.add(petals)
 
-  /* ---------------- sakura, only where they belong ---------------- */
-  const cherry = []
-  const CHERRY_Z = [-24, -40, -58, -76, -92, -112, -132]
-  CHERRY_Z.forEach((z, i) => {
-    const g = new THREE.Group()
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.1, 0.15, 2.3, 6),
-      new THREE.MeshBasicMaterial({ color: 0x3b2f28 })
-    )
-    trunk.position.y = 1.15
-    g.add(trunk)
-    const blossomMat = new THREE.MeshBasicMaterial({ color: 0xe2b1bd, transparent: true, opacity: 0 })
-    for (let b = 0; b < 3; b++){
-      const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.95, 8, 6), blossomMat)
-      canopy.position.set((Math.random()-0.5)*0.7, 2.4 + b*0.4, (Math.random()-0.5)*0.7)
-      canopy.scale.y = 0.7
-      g.add(canopy)
+    /* ---------------- sakura, only where they belong ---------------- */
+    const cherry = []
+    /* deepened so full spring sun never clips the canopy to white */
+    const PETAL_COLS = [0xd69aae, 0xcf8fa8, 0xc98aa2, 0xdda5b8]
+    function cherryTree(x, z, s){
+      const g = new THREE.Group()
+      const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.1, 0.15, 2.3, 6),
+        new THREE.MeshBasicMaterial({ color: 0x3b2f28 })
+      )
+      trunk.position.y = 1.15
+      g.add(trunk)
+      const blossomMat = new THREE.MeshBasicMaterial({
+        color: PETAL_COLS[(Math.random() * PETAL_COLS.length) | 0],
+        transparent: true, opacity: 0
+      })
+      const canopies = []
+      for (let b = 0; b < 3; b++){
+        const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.95, 8, 6), blossomMat)
+        canopy.position.set((Math.random()-0.5)*0.7, 2.4 + b*0.4, (Math.random()-0.5)*0.7)
+        canopy.scale.y = 0.7
+        g.add(canopy)
+        canopies.push(canopy)
+      }
+      g.position.set(x, 0, z)
+      g.scale.setScalar(s || 1)
+      g.userData = { mat: blossomMat, canopies, phase: Math.random() * 6.28 }
+      city.add(g)
+      cherry.push(g)
+      return g
     }
-    const side = i % 2 === 0 ? 1 : -1
-    g.position.set(side * (5.4 + (i % 3) * 0.5), 0, z)
-    g.userData = { mat: blossomMat, phase: Math.random() * 6.28 }
-    city.add(g)
-    cherry.push(g)
-  })
+    /* one or two street trees per district along the walk */
+    const CHERRY_Z = [-24, -40, -58, -76, -92, -112, -132]
+    CHERRY_Z.forEach((z, i) => {
+      cherryTree((i % 2 === 0 ? 1 : -1) * (5.4 + (i % 3) * 0.5), z, 1)
+    })
+    /* Nakameguro in spring is the blossom walk: a cluster flanking the river */
+    cherryTree(-6.4, -58.5, 1.15)
+    cherryTree(6.8, -60, 1.05)
+    cherryTree(-7.2, -63, 1.2)
+    cherryTree(7.4, -64.5, 1.0)
+    /* Asakusa keeps two temple-garden trees */
+    cherryTree(-5.8, -130, 1.1)
+    cherryTree(6.2, -136, 1.0)
 
   const sun = new THREE.DirectionalLight(0xffffff, 0.3)
   scene.add(sun)
@@ -418,16 +438,20 @@ export function createAtmosphere(ctx){
       pg.needsUpdate = true
     }
 
-    /* rain is owned here and nowhere else */
+    /* rain baseline; the main loop then layers intensity, streaks and fall
+       on top of these values each frame */
     rainMat.opacity = cur.rain * 0.30
     rain.visible = cur.rain > 0.02
 
-    /* sakura */
+    /* sakura: trunks stand year-round; only the blossom comes and goes.
+       Off-season the canopy rests as faint street foliage. */
     cherry.forEach(tr => {
       const u = tr.userData
       if (!reduced) tr.rotation.z = Math.sin(t * 0.5 + u.phase) * 0.016
-      u.mat.opacity = cur.petal * 0.88
-      tr.visible = cur.petal > 0.02
+      u.mat.opacity = 0.10 + cur.petal * 0.85
+      const cs = 0.72 + cur.petal * 0.28
+      u.canopies.forEach(c => { c.scale.x = c.scale.z = cs })
+      tr.visible = true
     })
   }
 
@@ -445,9 +469,10 @@ export function createAtmosphere(ctx){
       get weather(){ return weather },
       get district(){ return district }
     },
-    set,
-    update,
-    autoSet,
+      set,
+      update,
+      autoSet,
+      cherry,
     onChange(fn){ listeners.push(fn) },
     transitioning(){ return tween < 1 },
     target,
