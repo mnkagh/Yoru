@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LIMINAL TOKYO — still capture</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05070d; }
+  #f { width: 100%; height: 100%; border: 0; display: block; }
+</style>
+</head>
+<body>
+<iframe id="f" src=""></iframe>
+<script>
+/* The app is driven inside an iframe, the same way the behavioural
+   suite drives it, because the render loop is reliably pumped there.
+   We wait for the app to boot, then let its own ?shot logic capture
+   a frame and write a #png pre, which we copy here for --dump-dom. */
+const q = new URLSearchParams(location.search)
+const inner = new URLSearchParams()
+for (const k of ['p','time','weather','ui','out','frames']) {
+  const v = q.get(k); if (v !== null) inner.set(k, v)
+}
+inner.set('shot', '1')
+const f = document.getElementById('f')
+f.src = '/?' + inner.toString()
+
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+const W = () => f.contentWindow
+
+addEventListener('load', async () => {
+  const diag = []
+  for (let i = 0; i < 80; i++){
+    if (W().__yoru) break
+    await sleep(150)
+  }
+  diag.push('booted=' + !!W().__yoru)
+  if (W().__yoru){
+    const s = W().__yoru.state
+    diag.push('frames=' + s.frames + ' rendered=' + s.rendered + ' mode=' + s.mode)
+  }
+  /* the iframe's own shot logic captures once its atmosphere settles */
+  for (let i = 0; i < 200; i++){
+    try {
+      const d = f.contentDocument
+      const pre = d && d.querySelector('#png')
+      if (pre){
+        const out = document.createElement('pre')
+        out.id = 'png'
+        out.textContent = pre.textContent
+        document.body.appendChild(out)
+        const sp = d.querySelector('#stats')
+        if (sp){
+          const sout = document.createElement('pre')
+          sout.id = 'stats'
+          sout.textContent = sp.textContent
+          document.body.appendChild(sout)
+        }
+        document.title = 'SHOTDONE:' + (q.get('out') || 'shot')
+        return
+      }
+      const t = d && d.title
+      if (t && t.indexOf('SHOTERR') === 0){ document.title = t; return }
+      if (i % 20 === 0 && W().__yoru){
+        const s = W().__yoru.state
+        diag.push('f=' + s.frames + ' r=' + s.rendered + ' t=' + t)
+      }
+    } catch (e){}
+    await sleep(100)
+  }
+  const pre = document.createElement('pre')
+  pre.id = 'png'
+  pre.textContent = 'DIAG ' + diag.join(' | ')
+  document.body.appendChild(pre)
+  document.title = 'SHOTTIMEOUT'
+})
+</script>
+</body>
+</html>

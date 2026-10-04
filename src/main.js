@@ -20,8 +20,15 @@ const clamp = THREE.MathUtils.clamp
 const smooth = t=>t*t*(3-2*t)
 const easeOut = t=>1-Math.pow(1-t,3)
 
+/* A ?shot=1 URL turns the page into a self-driving camera: it enters the world,
+   flies to a requested scroll position and atmosphere, waits for the transition
+   to settle, then writes a PNG data URL into the DOM. preserveDrawingBuffer is
+   only enabled on this path, so it never costs anything in normal use. */
+const SHOT = new URLSearchParams(location.search).get('shot')
+/* assigned when ?shot=1; the render loop calls this to know when to capture */
+let shotCapture = null
 
-const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('scene'), antialias: !IS_TOUCH, powerPreference:'high-performance' })
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('scene'), antialias: !IS_TOUCH, powerPreference:'high-performance', preserveDrawingBuffer: !!SHOT })
 renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2))
 renderer.setSize(innerWidth, innerHeight)
 renderer.setClearColor(0x05070d, 1)
@@ -3971,12 +3978,11 @@ let miniRedraw = 0
 let bMatR = 1, bMatG = 0.9, bMatB = 0.78
 let lastFrame = performance.now()
 
-function loop(now){
-  requestAnimationFrame(loop)
+/* The whole per-frame simulation, factored out so it can be driven
+   two ways: by rAF in the live page, and synchronously by the
+   still-capture path, which cannot rely on headless rAF. */
+function updateWorld(dt, t, doRender = true){
   state.frames++
-  const dt = Math.min((now - lastFrame) / 1000, 0.05)
-  lastFrame = now
-  const t = now / 1000
   tGlobal = t
 
   state.clock += dt / 6
@@ -4192,6 +4198,8 @@ function loop(now){
     if (clawU.dropT <= 0){ clawArm.position.y = 1.6; clawHand.position.y = 1.15 }
   }
 
+  if (!doRender) return
+
   /* visibility-based rendering: opaque full-bleed sections cover the canvas,
      so we stop drawing the 3D entirely while they are on screen */
   let covered = false
@@ -4207,6 +4215,15 @@ function loop(now){
 
   composer.render()
   state.rendered++
+}
+
+/* The rAF driver: nothing but the clock and the schedule live here,
+   so the simulation itself is shared with the still-capture path. */
+function loop(now){
+  requestAnimationFrame(loop)
+  const dt = Math.min((now - lastFrame) / 1000, 0.05)
+  lastFrame = now
+  updateWorld(dt, now / 1000)
 }
 
 requestAnimationFrame(loop)
@@ -4236,4 +4253,89 @@ if (import.meta.env && import.meta.env.DEV){
     get reduced(){ return REDUCED }, get camPos(){ return camPos },
     get map(){ return map }, get mapLoading(){ return mapLoading }
   }
+}
+
+/* ------------------------- self-driving stills -------------------------
+   Lets the build be inspected visually: node tests/shot.cjs <name> <p> <time> <weather>
+   opens the real page, waits for the atmosphere to settle, and saves a PNG. */
+if (SHOT){
+ try {
+  const sp = new URLSearchParams(location.search)
+  const targetP = Math.min(1, Math.max(0, parseFloat(sp.get('p') || '0.5')))
+  const time = sp.get('time') || 'night'
+  const weather = sp.get('weather') || 'rain'
+  const settle = Math.max(1, parseInt(sp.get('frames') || '260', 10))
+  const out = sp.get('out') || 'shot'
+
+  document.getElementById('intro').classList.add('done')
+  document.getElementById('hero').classList.add('hidden')
+  document.body.classList.remove('locked')
+  state.mode = 'tour'
+  if (sp.get('ui') === '0'){
+    ;['nav', 'atmos', 'tally', 'sound-toggle'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.style.display = 'none'
+    })
+  }
+  state.p = targetP
+  atmosphere.set({ time, weather })
+  applyCamera()
+
+  /* Pump the simulation directly. Headless does not reliably pump
+     rAF, so instead of waiting for the render loop we advance the
+     exact same per-frame logic here, let the atmosphere tween settle,
+     then render once and read the frame back. */
+  const dt = 1 / 60
+  for (let i = 0; i < settle; i++) updateWorld(dt, i * dt, false)
+  composer.render()
+  state.rendered++
+  const pre = document.createElement('pre')
+  pre.id = 'png'
+  pre.textContent = renderer.domElement.toDataURL('image/png')
+  document.body.appendChild(pre)
+  document.title = 'SHOT:' + out
+
+  /* Objective visual verification. This model cannot see images, so
+     instead of eyeballing the frame we measure it. readPixels reads
+     the rendered frame straight from GL — the WebGL->2D canvas copy
+     stalls under swiftshader, the native call does not. Sample the
+     sky at the top of the frame and report the brightness
+     distribution so blow-out, crushed blacks and day/night
+     correctness are all checkable as numbers rather than impressions. */
+  const glc = renderer.domElement
+  const gl = renderer.getContext()
+  const W = glc.width, H = glc.height
+  const buf = new Uint8Array(W * H * 4)
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+  const px = W * H
+  let sum = 0, sR = 0, sG = 0, sB = 0, mx = 0, mn = 255, blow = 0, dark = 0
+  /* readPixels is bottom-up, so the sky lives in the last rows */
+  const skyRows = Math.max(1, Math.floor(H * 0.10))
+  const skyStart = (H - skyRows) * W
+  let skR = 0, skG = 0, skB = 0, skyN = 0
+  for (let i = 0; i < px; i++){
+    const r = buf[i*4], g = buf[i*4+1], b = buf[i*4+2]
+    const l = 0.2126*r + 0.7152*g + 0.0722*b
+    sum += l; sR += r; sG += g; sB += b
+    if (l > mx) mx = l
+    if (l < mn) mn = l
+    if (l > 245) blow++
+    if (l < 12) dark++
+    if (i >= skyStart){ skR += r; skG += g; skB += b; skyN++ }
+  }
+  const stats = {
+    w: W, h: H,
+    mean: +(sum / px).toFixed(1),
+    max: +mx.toFixed(1), min: +mn.toFixed(1),
+    blowoutPct: +(blow / px * 100).toFixed(2),
+    darkPct: +(dark / px * 100).toFixed(2),
+    meanRGB: [+(sR / px).toFixed(0), +(sG / px).toFixed(0), +(sB / px).toFixed(0)],
+    skyRGB: [+(skR / skyN).toFixed(0), +(skG / skyN).toFixed(0), +(skB / skyN).toFixed(0)]
+  }
+  const sPre = document.createElement('pre')
+  sPre.id = 'stats'
+  sPre.textContent = JSON.stringify(stats)
+  document.body.appendChild(sPre)
+ } catch (err){
+  document.title = 'SHOTERR:' + (err && err.message ? err.message : String(err))
+ }
 }

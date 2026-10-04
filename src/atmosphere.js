@@ -23,9 +23,9 @@ const WEATHERS = ['sunny', 'rain', 'snow', 'spring']
 const TIME = {
   day: {
     label: 'Day',
-    bg: [150, 172, 191], fog: [163, 183, 199], fogDensity: 0.0068,
+    bg: [96, 138, 178], fog: [112, 148, 184], fogDensity: 0.0068,
     light: 1.05, sun: [-30, 78, 34], amb: 0.38,
-    exposure: 1.06, tint: [1.05, 1.04, 1.01],
+    exposure: 1.03, tint: [1.02, 1.02, 1.00],
     stars: 0, moon: 0, windows: 0.18, signs: 0.30, pedDensity: 1.22, traffic: 1.12
   },
   sunset: {
@@ -295,9 +295,12 @@ export function createAtmosphere(ctx){
       const g = target()
       const e = tween < 0.5 ? 4*tween*tween*tween : 1 - Math.pow(-2*tween + 2, 3) / 2
       for (const k in cur){
+        /* the label is a string, not a number: it tracks the target
+           instead of being interpolated (which produced "…NaN") */
+        if (k === 'label'){ cur[k] = g[k]; continue }
         if (Array.isArray(cur[k]) && Array.isArray(from[k]) && Array.isArray(g[k])){
           for (let i = 0; i < g[k].length; i++) cur[k][i] = lerp(from[k][i], g[k][i], e)
-        } else if (!Array.isArray(cur[k])){
+        } else if (typeof cur[k] === 'number' && typeof from[k] === 'number' && typeof g[k] === 'number'){
           cur[k] = lerp(from[k], g[k], e)
         }
       }
