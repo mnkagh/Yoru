@@ -818,9 +818,31 @@ const rain = new THREE.Points(rainGeo, rainMat)
 camera.add(rain)
 scene.add(camera)
 
-/* Rain streaks: depth-aware lines. Near the camera they are short and
-   fast; far away they stretch long and slow. This replaces an unused
-   static glow-points object (opacity was always 0), so nothing regresses. */
+  /* fireworks: real 3D bursts above the skyline, scaled by intensity */
+  const fwBursts = []
+  let fwNext = 0
+  const fwGeoProto = new THREE.BufferGeometry()
+  function spawnFirework(t){
+    const n = 70
+    const pos = new Float32Array(n * 3)
+    const vel = []
+    const cx = (Math.random() - 0.5) * 60, cy = 55 + Math.random() * 25, cz = -190 - Math.random() * 40
+    const cols = [0xffd9a0, 0xff9a6a, 0x9adfff, 0xffb3c8, 0xe8f0ff]
+    const col = cols[(Math.random() * cols.length) | 0]
+    for (let i = 0; i < n; i++){
+      pos[i*3] = cx; pos[i*3+1] = cy; pos[i*3+2] = cz
+      const th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1)
+      const sp = (4 + Math.random() * 9) * (0.7 + (state.rainLevel || 1) * 0.4)
+      vel.push([Math.sin(ph)*Math.cos(th)*sp, Math.cos(ph)*sp, Math.sin(ph)*Math.sin(th)*sp * 0.4])
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    const m = new THREE.PointsMaterial({ color: col, size: 0.9, transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending })
+    const pts = new THREE.Points(g, m)
+    pts.frustumCulled = false
+    scene.add(pts)
+    fwBursts.push({ pts, vel, life: 1, max: 1 + Math.random() * 0.6 })
+  }
 const streakN = IS_TOUCH ? 130 : 320
 const streakBase = new Float32Array(streakN*3)
 const streakGeo = new THREE.BufferGeometry()
@@ -858,6 +880,7 @@ window.addEventListener('pointerdown', () => {
 
 const state = {
   mode:'hero',
+  fireworks: false,
   p:0,
   clock: 23*60+47,
   trafficT:0,
@@ -4111,7 +4134,8 @@ function showShrineDiscovery(id){
 
 const atmosphere = createAtmosphere({
   scene, camera, city, rain, rainGeo, rainMat, rainCount,
-  gradePass, IS_TOUCH, REDUCED
+  gradePass, IS_TOUCH, REDUCED,
+  get intensity(){ return state.rainLevel || 1 }
 })
 /* food follows the journey: reorder the rail when the district changes */
 atmosphere.onChange(() => { try { refreshDishDistrict() } catch (e){} try { updateAudio() } catch (e){} })
@@ -4215,6 +4239,12 @@ atmosTimes.querySelectorAll('button').forEach(b => {
       state.rainLevel = parseFloat(b.dataset.r) || 1
       atmosRainfall.querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b))
     })
+  })
+  const fwBtn = $('atmos-fireworks')
+  if (fwBtn) fwBtn.addEventListener('click', () => {
+    state.fireworks = !state.fireworks
+    fwBtn.classList.toggle('on', state.fireworks)
+    if (state.fireworks) toast('Fireworks over the bay — look up')
   })
 
 const AUTO_COPY = {
@@ -4831,15 +4861,15 @@ function updateWorld(dt, t, doRender = true){
   if (riverMat) riverMat.color.setRGB(0.05 + atm.light * 0.04, 0.08 + atm.light * 0.05, 0.12 + atm.light * 0.07)
 
   /* wet ground: puddles deepen and the road picks up a sheen; snow sheets it */
-  snowSheet.material.opacity = lerp(snowSheet.material.opacity, atm.snow * 0.42, 0.05)
+  snowSheet.material.opacity = lerp(snowSheet.material.opacity, atm.snow * (state.rainLevel||1) * 0.42, 0.05)
   snowSheet.visible = atm.snow > 0.04
   puddles.forEach(p => {
-    const want = 0.05 + atm.wet * 0.5
+    const want = 0.05 + atm.wet * (state.rainLevel||1) * 0.5
     p.material.opacity = lerp(p.material.opacity, want, 0.05)
     p.visible = atm.wet > 0.12
   })
   if (roadMat){
-    const sheen = atm.wet * (timeIsNight ? 0.5 : 0.28)
+    const sheen = atm.wet * (state.rainLevel||1) * (timeIsNight ? 0.5 : 0.28)
     roadMat.color.setRGB(0.055 + sheen * 0.1, 0.058 + sheen * 0.11, 0.068 + sheen * 0.14)
   }
 
@@ -4902,6 +4932,28 @@ function updateWorld(dt, t, doRender = true){
   }
   sp2.needsUpdate = true
   steamMat.opacity = 0.16 + Math.sin(t * 0.7) * 0.03
+
+  /* fireworks: launch on a low cadence, scale with intensity */
+  if (state.fireworks && t >= fwNext){
+    spawnFirework(t)
+    fwNext = t + ((state.rainLevel || 1) > 1.3 ? 1.0 : (state.rainLevel || 1) < 0.7 ? 2.6 : 1.6)
+  }
+  for (let i = fwBursts.length - 1; i >= 0; i--){
+    const b = fwBursts[i]
+    b.life -= dt / b.max
+    const p = b.pts.geometry.attributes.position
+    for (let j = 0; j < b.vel.length; j++){
+      b.vel[j][1] -= 5.5 * dt
+      p.setXYZ(j, p.getX(j) + b.vel[j][0] * dt, p.getY(j) + b.vel[j][1] * dt, p.getZ(j) + b.vel[j][2] * dt)
+    }
+    p.needsUpdate = true
+    b.pts.material.opacity = Math.max(0, b.life)
+    if (b.life <= 0){
+      scene.remove(b.pts)
+      b.pts.geometry.dispose(); b.pts.material.dispose()
+      fwBursts.splice(i, 1)
+    }
+  }
 
   miniRedraw -= dt
   if (miniRedraw <= 0){
@@ -4985,6 +5037,7 @@ if (import.meta.env && import.meta.env.DEV){
     addToItinerary, get itinerary(){ return itinerary },    get reduced(){ return REDUCED }, get camPos(){ return camPos },
     get map(){ return map }, get mapLoading(){ return mapLoading },
     rain, streaks, streakMat, peds, cat, get rainLevel(){ return state.rainLevel || 1 },
+    get fireworks(){ return state.fireworks }, get fwBursts(){ return fwBursts },
     /* deterministic test pump: advance the exact per-frame logic without rAF */
     tick(dt, t){ updateWorld(dt == null ? 1/60 : dt, t == null ? tGlobal + 1/60 : t, false) }
   }

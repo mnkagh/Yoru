@@ -408,8 +408,9 @@ export function createAtmosphere(ctx){
       sunSpr.material.opacity = (weather === 'rain' ? 0.12 : weather === 'snow' ? 0.22 : 0.9)
     }
 
+    const INTENS = (ctx.intensity == null ? 1 : ctx.intensity)
     /* snow */
-    snowMat.opacity = cur.snow * 0.72
+    snowMat.opacity = cur.snow * 0.72 * Math.min(1.8, Math.max(0.4, INTENS))
     snow.visible = cur.snow > 0.02
     if (snow.visible){
       const sp = fallGeo.attributes.position
@@ -425,7 +426,7 @@ export function createAtmosphere(ctx){
     /* petals, denser beside a tree */
     const nearTree = nearestTree(camera.position)
     const local = Math.max(0, 1 - nearTree / 9)
-    petalMat.opacity = cur.petal * (0.3 + local * 0.36)
+    petalMat.opacity = cur.petal * (0.3 + local * 0.36) * Math.min(1.8, Math.max(0.4, INTENS))
     petals.visible = cur.petal > 0.02
     if (petals.visible){
       const pg = petalGeo.attributes.position
@@ -440,7 +441,7 @@ export function createAtmosphere(ctx){
 
     /* rain baseline; the main loop then layers intensity, streaks and fall
        on top of these values each frame */
-    rainMat.opacity = cur.rain * 0.30
+    rainMat.opacity = cur.rain * 0.30 * Math.min(1.8, Math.max(0.4, INTENS))
     rain.visible = cur.rain > 0.02
 
     /* sakura: trunks stand year-round; only the blossom comes and goes.
