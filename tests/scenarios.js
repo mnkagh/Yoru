@@ -50,6 +50,26 @@ SCENARIOS.districtProfiles = async ({ w, d, Y, $, rec, sleep }) => {
   const dishQ = y.conciergeRecommend({ district: 'shinjuku', time: 'night', weather: 'sunny', question: 'Where is good ramen?' })
   rec('concierge finds a district for a named dish', dishQ.some(r => /ramen/i.test(r.title + ' ' + r.why)),
       dishQ.map(r => r.title).join(' | '))
+
+  // resolved data must reach the RENDERER, not stop at resolveWorld
+  y.atmosphere.set({ district: 'shibuya', time: 'night', weather: 'sunny' }, true)
+  for (let i = 0; i < 4; i++) y.tick(1/60, 6000 + i/60)
+  const shiKinds = y.cars.map(c => c.userData.kind)
+  rec('Shibuya traffic runs buses and taxis, not only cars', shiKinds.indexOf('bus') > -1 && shiKinds.indexOf('taxi') > -1, shiKinds.slice(0,6).join(','))
+  const screensOn = y.signs.filter(m => m.userData.isScreen && m.visible).length
+  rec('Shibuya billboards are lit', screensOn > 0, screensOn + ' screens')
+  y.atmosphere.set({ district: 'asakusa', time: 'night', weather: 'sunny' }, true)
+  for (let i = 0; i < 4; i++) y.tick(1/60, 7000 + i/60)
+  const lanternsOn = y.scene.traverse ? (function(){ let n=0; y.scene.traverse(o => { if (o.geometry && o.geometry.type==='SphereGeometry' && o.visible && o.material && o.material.color && o.material.color.getHex()===0xffb36b) n++; return }); return n })() : 0
+  rec('Asakusa lanterns switch on', lanternsOn > 0, lanternsOn + ' visible')
+  const screenOffCount = y.signs.filter(m => m.userData.isScreen && !m.visible).length
+  rec('Asakusa hides the crossing billboards', screenOffCount > 0, screenOffCount + ' hidden')
+  y.atmosphere.set({ district: 'tsukiji', time: 'day', weather: 'sunny' }, true)
+  for (let i = 0; i < 4; i++) y.tick(1/60, 8000 + i/60)
+  const tsuKinds = y.cars.map(c => c.userData.kind)
+  rec('Tsukiji traffic runs vans and trucks', tsuKinds.indexOf('truck') > -1 && tsuKinds.indexOf('van') > -1, tsuKinds.slice(0,6).join(','))
+  const lanternsOff = y.scene ? (function(){ let n=0; y.scene.traverse(o => { if (o.geometry && o.geometry.type==='SphereGeometry' && !o.visible && o.material && o.material.color && o.material.color.getHex()===0xffb36b) n++; return }); return n })() : 0
+  rec('Asakusa lanterns switch off elsewhere', lanternsOff > 0, lanternsOff + ' hidden')
 }
 
 /* ------------------------------------------------------------------ *

@@ -459,6 +459,9 @@ function spawnRipple(x, z){
 const cars = []
 const carGeo = new THREE.BoxGeometry(1.7, 0.55, 0.75)
 const vanGeo = new THREE.BoxGeometry(1.9, 0.95, 0.8)
+const busGeo = new THREE.BoxGeometry(3.6, 1.15, 1.0)
+const truckGeo = new THREE.BoxGeometry(2.6, 1.0, 1.0)
+const bikeGeo = new THREE.BoxGeometry(0.5, 0.32, 1.1)
 for(let i=0;i<14;i++){
   const dir = i%2===0 ? 1 : -1
   const kind = i % 5 === 3 ? 'taxi' : (i % 5 === 4 ? 'van' : 'car')
@@ -470,13 +473,14 @@ for(let i=0;i<14;i++){
   head.position.set(dir>0?0.9:-0.9, 0, 0)
   head.rotation.y = dir>0 ? Math.PI/2 : -Math.PI/2
   c.add(head)
-  if (kind === 'taxi'){
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.2),
-      new THREE.MeshBasicMaterial({ color: 0xffe95a }))
-    roof.position.set(0, 0.36, 0)
-    c.add(roof)
-  }
-  c.userData = { dir, speed: 5+Math.random()*5, headMat: head.material, headBase: head.material.color.clone(), isHead: dir > 0 }
+  /* overlays are shared per car and toggled by district dressing */
+  const roofSign = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.2), new THREE.MeshBasicMaterial({ color: 0xffe95a }))
+  roofSign.position.set(0, 0.36, 0); roofSign.visible = (kind === 'taxi'); c.add(roofSign)
+  const busStrip = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.3, 1.02), new THREE.MeshBasicMaterial({ color: 0xd8e6ff, transparent: true, opacity: 0.55 }))
+  busStrip.position.set(0, 0.25, 0); busStrip.visible = false; c.add(busStrip)
+  const rider = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.7, 0.35), new THREE.MeshBasicMaterial({ color: 0x2a2f3a }))
+  rider.position.set(0, 0.55, 0); rider.visible = false; c.add(rider)
+  c.userData = { dir, speed: 5+Math.random()*5, headMat: head.material, headBase: head.material.color.clone(), isHead: dir > 0, kind, roofSign, busStrip, rider }
   city.add(c)
   cars.push(c)
 }
@@ -3875,21 +3879,52 @@ function dressDistrict(districtId, time, weather){
   if (districtId === dressedDistrict) return
   dressedDistrict = districtId
   const d = districtForTour(districtId) || DISTRICTS.shinjuku
-  if (!d.signs || !d.signs.length) return
-  signs.forEach((m, i) => {
-    const def = d.signs[i % d.signs.length]
-    const old = m.material.map
-    const oldR = m.userData.refl ? m.userData.refl.material.map : null
-    const tex = neonTexture(def[0], def[1], 256, 72)
-    m.material.map = tex
-    m.material.needsUpdate = true
-    m.userData.text = def[0]
-    if (old) old.dispose()
-    if (m.userData.refl){
-      m.userData.refl.material.map = tex
-      m.userData.refl.material.needsUpdate = true
-      if (oldR) oldR.dispose()
-    }
+  const world = resolveWorld(d.id, time || atmosphere.state.time, weather || atmosphere.state.weather)
+  if (d.signs && d.signs.length){
+    signs.forEach((m, i) => {
+      const def = d.signs[i % d.signs.length]
+      const old = m.material.map
+      const oldR = m.userData.refl ? m.userData.refl.material.map : null
+      const tex = neonTexture(def[0], def[1], 256, 72)
+      m.material.map = tex
+      m.material.needsUpdate = true
+      m.userData.text = def[0]
+      if (old) old.dispose()
+      if (m.userData.refl){
+        m.userData.refl.material.map = tex
+        m.userData.refl.material.needsUpdate = true
+        if (oldR) oldR.dispose()
+      }
+    })
+  }
+  dressEnvironment(world)
+}
+
+/* The resolved world now drives vehicles + large props, not just text.
+   Shibuya gets buses and crossing screens; Tsukiji gets delivery
+   trucks; Asakusa lights its lanterns and pockets the screens. */
+function dressEnvironment(world){
+  const props = (world && world.props) || []
+  signs.forEach(m => { if (m.userData.isScreen) m.visible = props.indexOf('screens') > -1 })
+  lanterns.forEach(l => { l.visible = props.indexOf('lanterns') > -1 })
+  arcadeCab.visible = props.indexOf('screens') > -1 || props.indexOf('gacha') > -1
+  /* Vehicles become what the district actually runs */
+  const allowed = ['taxi', 'van', 'car', 'bus', 'truck', 'bicycle']
+  const list = (world.vehicles || []).filter(v => allowed.indexOf(v) > -1)
+  const kinds = list.length ? list : ['car']
+  cars.forEach((c, i) => {
+    const u = c.userData
+    const k = kinds[i % kinds.length]
+    u.kind = k
+    u.roofSign.visible = k === 'taxi'
+    u.busStrip.visible = k === 'bus'
+    u.rider.visible = k === 'bicycle'
+    if (k === 'bus'){ c.geometry = busGeo; c.material.color.setHex(0x24386b); c.position.y = 0.62 }
+    else if (k === 'truck'){ c.geometry = truckGeo; c.material.color.setHex(0x2a2f38); c.position.y = 0.6 }
+    else if (k === 'bicycle'){ c.geometry = bikeGeo; c.material.color.setHex(0x14181f); c.position.y = 0.2 }
+    else if (k === 'van'){ c.geometry = vanGeo; c.material.color.setHex(0x1c2434); c.position.y = 0.6 }
+    else if (k === 'taxi'){ c.geometry = carGeo; c.material.color.setHex(0x2a2a1c); c.position.y = 0.4 }
+    else { c.geometry = carGeo; c.material.color.setHex(0x1c2434); c.position.y = 0.4 }
   })
 }
 
@@ -4681,7 +4716,7 @@ if (import.meta.env && import.meta.env.DEV){
     submitUserText, LOCATIONS, PLACES, PEOPLE, DIALOGUE, DISHES, SHRINES, state, TOUR,
     camAt, camAtStatic, applyCamera, camera, showDish, buildDishRail, refreshDishDistrict,
     showShrineDiscovery, closeDiscovery, closeLocation, shrineHits, scene, city,
-    showMoment, MEDIA, resolveWorld, districtForTour, DISTRICTS, conciergeRecommend, signs,
+    showMoment, MEDIA, resolveWorld, districtForTour, DISTRICTS, conciergeRecommend, signs, cars, arcadeCab, dressEnvironment, dressDistrict,
     addToItinerary, get itinerary(){ return itinerary },    get reduced(){ return REDUCED }, get camPos(){ return camPos },
     get map(){ return map }, get mapLoading(){ return mapLoading },
     rain, streaks, streakMat, peds, cat, get rainLevel(){ return state.rainLevel || 1 },
