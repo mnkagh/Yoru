@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
 /* ==========================================================================
    ATMOSPHERE
@@ -83,6 +84,7 @@ const AUTO_MS = { off: 0, m5: 300000, m15: 900000, m30: 1800000, m60: 3600000 }
 const TRANSITION_SEC = 3.4
 
 const lerp = (a, b, t) => a + (b - a) * t
+const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v
 
 /* the single derivation: time x weather x district -> one visual state */
 function derive(time, weather, districtKey){
@@ -177,12 +179,18 @@ export function createAtmosphere(ctx){
   scene.add(stars)
 
   /* ---------------- moon ---------------- */
+  /* The moon is a disc plus its own halo, so it reads as a body with
+     atmosphere around it rather than a white blob. */
+  const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: moonGlowTexture(), transparent: true, opacity: 0, depthWrite: false,
+    blending: THREE.AdditiveBlending, fog: false
+  }))
   const moon = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: moonTexture(), transparent: true, opacity: 0, depthWrite: false
+    map: moonTexture(), transparent: true, opacity: 0, depthWrite: false, fog: false
   }))
   moon.position.set(70, 80, -260)
-  moon.scale.setScalar(9)
-  scene.add(moon)
+  moonGlow.position.copy(moon.position)
+  scene.add(moonGlow, moon)
 
   /* ---------------- precipitation ---------------- */
   const fallCount = reduced ? 80 : isTouch ? 240 : 560
@@ -208,50 +216,138 @@ export function createAtmosphere(ctx){
   snow.frustumCulled = petals.frustumCulled = false
   camera.add(snow); camera.add(petals)
 
-    /* ---------------- sakura, only where they belong ---------------- */
-    const cherry = []
-    /* deepened so full spring sun never clips the canopy to white */
-    const PETAL_COLS = [0xd69aae, 0xcf8fa8, 0xc98aa2, 0xdda5b8]
-    function cherryTree(x, z, s){
-      const g = new THREE.Group()
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.1, 0.15, 2.3, 6),
-        new THREE.MeshBasicMaterial({ color: 0x3b2f28 })
-      )
-      trunk.position.y = 1.15
-      g.add(trunk)
-      const blossomMat = new THREE.MeshBasicMaterial({
-        color: PETAL_COLS[(Math.random() * PETAL_COLS.length) | 0],
-        transparent: true, opacity: 0
-      })
-      const canopies = []
-      for (let b = 0; b < 3; b++){
-        const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.95, 8, 6), blossomMat)
-        canopy.position.set((Math.random()-0.5)*0.7, 2.4 + b*0.4, (Math.random()-0.5)*0.7)
-        canopy.scale.y = 0.7
-        g.add(canopy)
-        canopies.push(canopy)
+    /* ---------------- SAKURA ENVIRONMENT SYSTEM ----------------
+   Spring has to transform the environment, not tint it. A real
+   sakura system needs MANY trees, arranged the way Tokyo plants them:
+   continuous street rows, the Meguro river banks, temple gardens, park
+   clusters, and background rows behind them.
+
+   Performance: trunks and blossom clusters are both InstancedMeshes.
+   Blossom strength is carried in instanceColor (mixed between foliage
+   green and petal pink), and intensity is applied through `count`, so
+   LOW/MEDIUM/HIGH physically shows more or fewer blooming trees rather
+   than fading the same few. Trees are ordered by priority, so the
+   important rows are always the ones that survive a LOW count. */
+    const PETAL_COLS = [0xe0a8bc, 0xd99ab0, 0xcf8fa8, 0xe8b8c6, 0xdba2b4]
+    const FOLIAGE = [0x35502f, 0x2c4429, 0x3d5a34, 0x27401f]
+    const WIND = { x: 0.5, z: 0.16 }
+
+    /* trunk + branch geometry, merged once and instanced */
+    const trunkParts = []
+    {
+      const g1 = new THREE.CylinderGeometry(0.10, 0.17, 2.5, 6)
+      g1.translate(0, 1.25, 0)
+      trunkParts.push(g1)
+      for (let b = 0; b < 4; b++){
+        const len = 0.85 + Math.random() * 0.5
+        const g2 = new THREE.CylinderGeometry(0.035, 0.075, len, 5)
+        const a = (b / 4) * Math.PI * 2 + Math.random() * 0.6
+        g2.rotateZ(0.75 + Math.random() * 0.3)
+        g2.rotateY(a)
+        g2.translate(Math.cos(a) * 0.28, 2.45 + Math.random() * 0.4, Math.sin(a) * 0.28)
+        trunkParts.push(g2)
       }
-      g.position.set(x, 0, z)
-      g.scale.setScalar(s || 1)
-      g.userData = { mat: blossomMat, canopies, phase: Math.random() * 6.28 }
-      city.add(g)
-      cherry.push(g)
-      return g
     }
-    /* one or two street trees per district along the walk */
-    const CHERRY_Z = [-24, -40, -58, -76, -92, -112, -132]
-    CHERRY_Z.forEach((z, i) => {
-      cherryTree((i % 2 === 0 ? 1 : -1) * (5.4 + (i % 3) * 0.5), z, 1)
-    })
-    /* Nakameguro in spring is the blossom walk: a cluster flanking the river */
-    cherryTree(-6.4, -58.5, 1.15)
-    cherryTree(6.8, -60, 1.05)
-    cherryTree(-7.2, -63, 1.2)
-    cherryTree(7.4, -64.5, 1.0)
-    /* Asakusa keeps two temple-garden trees */
-    cherryTree(-5.8, -130, 1.1)
-    cherryTree(6.2, -136, 1.0)
+    const TRUNK_GEO = mergeGeometries(trunkParts, false)
+    trunkParts.forEach(g => g.dispose())
+    /* blossom cluster: several overlapping lobes, not one sphere */
+    const blossomParts = []
+    for (let b = 0; b < 6; b++){
+      const r = 0.52 + Math.random() * 0.34
+      const g = new THREE.SphereGeometry(r, 7, 5)
+      g.scale(1, 0.78, 1)
+      g.translate((Math.random()-0.5)*1.5, 2.95 + Math.random()*0.75, (Math.random()-0.5)*1.5)
+      blossomParts.push(g)
+    }
+    const BLOSSOM_GEO = mergeGeometries(blossomParts, false)
+    blossomParts.forEach(g => g.dispose())
+
+    /* -------- where the trees go, and how much each place matters ----- */
+    /* priority 1 = must always be blooming, 3 = background filler */
+    const spots = []
+    const addRow = (x0, z0, x1, z1, n, prio, sMin, sMax) => {
+      for (let i = 0; i < n; i++){
+        const k = n === 1 ? 0.5 : i / (n - 1)
+        spots.push({
+          x: lerp(x0, x1, k), z: lerp(z0, z1, k), prio,
+          s: sMin + Math.random() * (sMax - sMin),
+          r: Math.random() * Math.PI * 2,
+          col: (Math.random() * PETAL_COLS.length) | 0,
+          fol: (Math.random() * FOLIAGE.length) | 0,
+          ph: Math.random() * 6.28
+        })
+      }
+    }
+    /* NAKAMEGURO: the river banks. Both sides, dense, staggered. */
+    addRow(-8.2, -54, -9.4, -69, 11, 1, 1.0, 1.35)
+    addRow(8.2, -54, 9.4, -69, 11, 1, 1.0, 1.35)
+    /* plus a second, deeper row behind them */
+    addRow(-12.5, -52, -13.5, -70, 7, 2, 0.9, 1.2)
+    addRow(12.5, -52, 13.5, -70, 7, 2, 0.9, 1.2)
+    /* ASAKUSA: temple garden clusters, which is where they actually are */
+    addRow(-7.0, -126, -8.4, -140, 6, 1, 1.05, 1.3)
+    addRow(7.0, -126, 8.4, -140, 6, 1, 1.05, 1.3)
+    addRow(-16, -124, -17, -141, 5, 2, 0.95, 1.15)
+    addRow(16, -124, 17, -141, 5, 2, 0.95, 1.15)
+    /* HARAJUKU / YOYOGI: park-edge rows */
+    addRow(-6.4, -28, -7.4, -39, 5, 1, 1.0, 1.2)
+    addRow(6.4, -28, 7.4, -39, 5, 1, 1.0, 1.2)
+    /* SHIBUYA and SHINJUKU: street rows, sparser, they are city streets */
+    addRow(-5.6, 2, -6.2, -22, 6, 2, 0.85, 1.05)
+    addRow(5.6, 2, 6.2, -22, 6, 2, 0.85, 1.05)
+    addRow(-5.6, -42, -6.4, -52, 4, 2, 0.85, 1.05)
+    addRow(5.6, -42, 6.4, -52, 4, 2, 0.85, 1.05)
+    /* ROPPONGI, GINZA, TSUKIJI, AKIHABARA: a few, and further back */
+    addRow(-6.6, -70, -7.4, -80, 4, 3, 0.8, 1.0)
+    addRow(6.6, -70, 7.4, -80, 4, 3, 0.8, 1.0)
+    addRow(-18, -86, -19, -94, 4, 3, 0.85, 1.05)
+    addRow(18, -86, 19, -94, 4, 3, 0.85, 1.05)
+    addRow(-6.6, -98, -7.4, -108, 3, 3, 0.8, 0.95)
+    addRow(6.6, -98, 7.4, -108, 3, 3, 0.8, 0.95)
+    addRow(-6.6, -112, -7.4, -122, 3, 3, 0.8, 0.95)
+    addRow(6.6, -112, 7.4, -122, 3, 3, 0.8, 0.95)
+    /* ODAIBA: the waterfront trees, the last green before the water */
+    addRow(-14, -150, -22, -162, 5, 3, 0.85, 1.05)
+    addRow(14, -150, 22, -162, 5, 3, 0.85, 1.05)
+
+    /* priority order first, so a low count keeps the important rows */
+    spots.sort((a, b) => a.prio - b.prio)
+    const TREE_COUNT = spots.length
+
+    const trunkMesh = new THREE.InstancedMesh(
+      TRUNK_GEO, new THREE.MeshBasicMaterial({ color: 0xffffff }), TREE_COUNT)
+    const blossomMesh = new THREE.InstancedMesh(
+      BLOSSOM_GEO, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.94 }),
+      TREE_COUNT)
+    trunkMesh.frustumCulled = false
+    blossomMesh.frustumCulled = false
+    const treeDummy = new THREE.Object3D()
+    const petalCol = new THREE.Color(), foliageCol = new THREE.Color()
+    const trunkCol = new THREE.Color()
+    for (let i = 0; i < TREE_COUNT; i++){
+      const sp = spots[i]
+      treeDummy.position.set(sp.x, 0, sp.z)
+      treeDummy.rotation.set(0, sp.r, 0)
+      treeDummy.scale.setScalar(sp.s)
+      treeDummy.updateMatrix()
+      trunkMesh.setMatrixAt(i, treeDummy.matrix)
+      trunkMesh.setColorAt(i, trunkCol.setHex(0x3b2f28))
+      blossomMesh.setMatrixAt(i, treeDummy.matrix)
+    }
+    trunkMesh.instanceMatrix.needsUpdate = true
+    blossomMesh.instanceMatrix.needsUpdate = true
+    city.add(trunkMesh, blossomMesh)
+
+    /* the individual tree records the rest of the module still wants */
+    const cherry = spots.map(sp => ({ position: new THREE.Vector3(sp.x, 0, sp.z),
+                                     userData: { phase: sp.ph, prio: sp.prio } }))
+    const sakura = {
+      total: TREE_COUNT,
+      priority1: spots.filter(s => s.prio === 1).length,
+      mesh: blossomMesh,
+      trunks: trunkMesh,
+      spots
+    }
 
   const sun = new THREE.DirectionalLight(0xffffff, 0.3)
   scene.add(sun)
@@ -288,12 +384,17 @@ export function createAtmosphere(ctx){
   skyDome.renderOrder = -10
   scene.add(skyDome)
 
-  /* Visible sun disc: modest, physically placed, not a pasted circle.
-     Day sits high; sunset drops near the horizon and warms. */
+  /* Visible sun: a disc with a limb, plus a separate broad glow layer.
+     Both scale with intensity, so LOW is a soft small sun and HIGH is a
+     large bright one — without repainting the whole world yellow. */
+  const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: sunGlowTexture(), transparent: true, opacity: 0, depthWrite: false,
+    blending: THREE.AdditiveBlending, fog: false
+  }))
   const sunSpr = new THREE.Sprite(new THREE.SpriteMaterial({
     map: sunTexture(), transparent: true, opacity: 0, depthWrite: false, fog: false
   }))
-  scene.add(sunSpr)
+  scene.add(sunGlow, sunSpr)
 
   const bgCol = new THREE.Color()
   const fogCol = new THREE.Color()
@@ -377,38 +478,64 @@ export function createAtmosphere(ctx){
     sun.position.copy(sunPos.set(cur.sun[0], cur.sun[1], cur.sun[2]))
     amb.intensity = cur.amb
 
-    starMat.opacity = cur.stars * 0.42
+    const INTENS = (ctx.intensity == null ? 1 : ctx.intensity)
+    /* LOW / MEDIUM / HIGH, from the one shared intensity control */
+    const SUN_K = INTENS < 0.7 ? 0 : INTENS > 1.3 ? 2 : 1
+    const sunSize = SUN_K === 0 ? 15 : SUN_K === 2 ? 30 : 21
+    const glowSize = SUN_K === 0 ? 60 : SUN_K === 2 ? 128 : 88
+
+    starMat.opacity = cur.stars * 0.42 * (INTENS > 1.3 ? 1.35 : INTENS < 0.7 ? 0.7 : 1)
+    starMat.size = INTENS > 1.3 ? 2.1 : INTENS < 0.7 ? 1.5 : 1.8
     stars.visible = cur.stars > 0.02
     if (stars.visible && !reduced){
       const sp = starGeo.attributes.position
       for (let i = 0; i < starCount; i++) sp.setY(i, sp.getY(i) + Math.sin(t * 0.6 + starSeed[i]) * 0.0006)
       sp.needsUpdate = true
     }
-    moon.material.opacity = cur.moon * 0.8
+    /* the moon, and its halo, both driven by intensity */
+    const moonK = INTENS > 1.3 ? 1.35 : INTENS < 0.7 ? 0.68 : 1
+    moon.material.opacity = cur.moon * 0.92 * moonK
     moon.visible = cur.moon > 0.02
+    moon.scale.setScalar(11 * (INTENS > 1.3 ? 1.22 : 1))
+    moonGlow.material.opacity = cur.moon * 0.5 * moonK
+    moonGlow.visible = moon.visible
+    moonGlow.scale.setScalar(46 * (INTENS > 1.3 ? 1.3 : INTENS < 0.7 ? 0.8 : 1))
 
     /* sky gradient follows the derived state */
     skyUni.top.value.setRGB(cur.bg[0]/255, cur.bg[1]/255, cur.bg[2]/255)
     skyUni.horizon.value.setRGB(cur.fog[0]/255, cur.fog[1]/255, cur.fog[2]/255)
-    /* sun disc: day high, sunset low and warm, gone at night */
+    /* sun: day high and white-warm, sunset low and orange, gone at night.
+       Intensity decides how large and how bright, never what colour the
+       rest of the world becomes. */
     if (time === 'night'){
       sunSpr.material.opacity = 0
       sunSpr.visible = false
+      sunGlow.material.opacity = 0
+      sunGlow.visible = false
     } else if (time === 'sunset'){
-      sunSpr.visible = true
+      sunSpr.visible = true; sunGlow.visible = true
       sunSpr.position.set(-110, 26, -260)
-      sunSpr.scale.setScalar(30)
-      sunSpr.material.color.setRGB(1.0, 0.72, 0.48)
-      sunSpr.material.opacity = (weather === 'rain' ? 0.12 : weather === 'snow' ? 0.2 : 0.95)
+      sunGlow.position.copy(sunSpr.position)
+      sunSpr.scale.setScalar(sunSize * 1.25)
+      sunGlow.scale.setScalar(glowSize * 1.35)
+      sunSpr.material.color.setRGB(1.0, 0.74, 0.50)
+      sunGlow.material.color.setRGB(1.0, 0.62, 0.34)
+      const clear = weather === 'sunny' || weather === 'spring' ? 1 : weather === 'snow' ? 0.34 : 0.16
+      sunSpr.material.opacity = clear * (SUN_K === 2 ? 1 : SUN_K === 1 ? 0.95 : 0.82)
+      sunGlow.material.opacity = clear * (SUN_K === 2 ? 0.95 : SUN_K === 1 ? 0.7 : 0.45)
     } else {
-      sunSpr.visible = true
+      sunSpr.visible = true; sunGlow.visible = true
       sunSpr.position.set(-70, 170, -220)
-      sunSpr.scale.setScalar(24)
-      sunSpr.material.color.setRGB(1.0, 0.97, 0.92)
-      sunSpr.material.opacity = (weather === 'rain' ? 0.12 : weather === 'snow' ? 0.22 : 0.9)
+      sunGlow.position.copy(sunSpr.position)
+      sunSpr.scale.setScalar(sunSize)
+      sunGlow.scale.setScalar(glowSize)
+      /* HIGH is a warm white; MEDIUM neutral; LOW softer and cooler */
+      sunSpr.material.color.setRGB(1.0, SUN_K === 2 ? 0.98 : 0.97, SUN_K === 2 ? 0.90 : 0.92)
+      sunGlow.material.color.setRGB(1.0, SUN_K === 2 ? 0.93 : 0.95, SUN_K === 2 ? 0.74 : 0.80)
+      const clear = weather === 'sunny' || weather === 'spring' ? 1 : weather === 'snow' ? 0.36 : 0.16
+      sunSpr.material.opacity = clear * (SUN_K === 2 ? 1 : SUN_K === 1 ? 0.96 : 0.85)
+      sunGlow.material.opacity = clear * (SUN_K === 2 ? 0.85 : SUN_K === 1 ? 0.6 : 0.38)
     }
-
-    const INTENS = (ctx.intensity == null ? 1 : ctx.intensity)
     /* snow */
     snowMat.opacity = cur.snow * 0.72 * Math.min(1.8, Math.max(0.4, INTENS))
     snow.visible = cur.snow > 0.02
@@ -444,16 +571,56 @@ export function createAtmosphere(ctx){
     rainMat.opacity = cur.rain * 0.30 * Math.min(1.8, Math.max(0.4, INTENS))
     rain.visible = cur.rain > 0.02
 
-    /* sakura: trunks stand year-round; only the blossom comes and goes.
-       Off-season the canopy rests as faint street foliage. */
-    cherry.forEach(tr => {
-      const u = tr.userData
-      if (!reduced) tr.rotation.z = Math.sin(t * 0.5 + u.phase) * 0.016
-      u.mat.opacity = 0.10 + cur.petal * 0.85
-      const cs = 0.72 + cur.petal * 0.28
-      u.canopies.forEach(c => { c.scale.x = c.scale.z = cs })
-      tr.visible = true
-    })
+    /* SAKURA: the trunks stand year-round; the blossom comes and goes.
+       Off-season the canopy rests as foliage. Intensity decides how many
+       trees are actually blooming — LOW shows the priority rows, HIGH
+       shows everything — so the difference is obvious rather than a fade.
+       Wind moves the canopy; in snow the blossom whitens. */
+    {
+      const INTENS = ctx.intensity == null ? 1 : ctx.intensity
+      const bloom = clamp(cur.petal, 0, 1)
+      /* how much of the planting is in blossom at this intensity */
+      const frac = INTENS < 0.7 ? 0.42 : INTENS > 1.3 ? 1.0 : 0.74
+      const showing = Math.max(8, Math.round(TREE_COUNT * frac * (0.34 + bloom * 0.66)))
+      blossomMesh.count = Math.min(TREE_COUNT, showing)
+      const windK = 0.012 + (INTENS > 1.3 ? 0.02 : INTENS < 0.7 ? 0.006 : 0.012) * (0.6 + bloom * 0.8)
+      if (!reduced){
+        for (let i = 0; i < blossomMesh.count; i++){
+          const sp = spots[i]
+          treeDummy.position.set(
+            sp.x + Math.sin(t * 0.6 + sp.ph) * WIND.x * windK * 40,
+            0,
+            sp.z + Math.cos(t * 0.42 + sp.ph) * WIND.z * windK * 40)
+          treeDummy.rotation.set(
+            Math.sin(t * 0.5 + sp.ph) * windK,
+            sp.r,
+            Math.cos(t * 0.36 + sp.ph) * windK)
+          treeDummy.scale.setScalar(sp.s * (0.92 + bloom * 0.14))
+          treeDummy.updateMatrix()
+          blossomMesh.setMatrixAt(i, treeDummy.matrix)
+        }
+        blossomMesh.instanceMatrix.needsUpdate = true
+      }
+      /* colour: foliage when out of season, petal pink in bloom, and a
+         snow-dusted white when both are true at once */
+      const snowMix = clamp(cur.snow, 0, 1) * 0.5
+      for (let i = 0; i < TREE_COUNT; i++){
+        const sp = spots[i]
+        petalCol.setHex(PETAL_COLS[sp.col])
+        foliageCol.setHex(FOLIAGE[sp.fol])
+        const k = 0.12 + bloom * 0.88
+        blossomMesh.setColorAt(i, petalCol.lerp(foliageCol, 1 - k))
+        if (snowMix > 0){
+          const c = blossomMesh.instanceColor
+          void c
+        }
+      }
+      if (blossomMesh.instanceColor) blossomMesh.instanceColor.needsUpdate = true
+      /* snow settling on blossom */
+      blossomMesh.material.color.setRGB(1 + snowMix * 0.2, 1 + snowMix * 0.25, 1 + snowMix * 0.3)
+      blossomMesh.material.opacity = 0.80 + bloom * 0.14
+      trunkMesh.visible = true
+    }
   }
 
   function nearestTree(pos){
@@ -473,7 +640,7 @@ export function createAtmosphere(ctx){
       set,
       update,
       autoSet,
-      cherry,
+      cherry, sakura,
     onChange(fn){ listeners.push(fn) },
     transitioning(){ return tween < 1 },
     target,
@@ -496,28 +663,79 @@ export function createAtmosphere(ctx){
 
 function moonTexture(){
   const c = document.createElement('canvas')
-  c.width = c.height = 128
+  c.width = c.height = 256
   const x = c.getContext('2d')
-  const g = x.createRadialGradient(64, 64, 4, 64, 64, 62)
-  g.addColorStop(0, 'rgba(255,250,238,1)')
-  g.addColorStop(0.45, 'rgba(246,238,220,0.8)')
-  g.addColorStop(0.72, 'rgba(220,210,190,0.2)')
-  g.addColorStop(1, 'rgba(200,190,170,0)')
+  /* a disc with a defined limb and a faint mare pattern, so the moon
+     reads as a body in the sky rather than a white blob */
+  const g = x.createRadialGradient(120, 116, 10, 128, 128, 116)
+  g.addColorStop(0, 'rgba(255,252,244,1)')
+  g.addColorStop(0.5, 'rgba(246,240,226,1)')
+  g.addColorStop(0.88, 'rgba(226,218,202,1)')
+  g.addColorStop(0.965, 'rgba(198,190,176,0.92)')
+  g.addColorStop(1, 'rgba(180,172,160,0)')
   x.fillStyle = g
-  x.beginPath(); x.arc(64, 64, 62, 0, Math.PI * 2); x.fill()
+  x.beginPath(); x.arc(128, 128, 118, 0, Math.PI * 2); x.fill()
+  /* maria: soft grey patches, deterministic */
+  x.globalAlpha = 0.13
+  x.fillStyle = '#9aa0a8'
+  const spots = [[104, 108, 26], [148, 132, 20], [122, 152, 17], [156, 96, 13], [92, 140, 12]]
+  spots.forEach(([sx, sy, r]) => {
+    const rg = x.createRadialGradient(sx, sy, 0, sx, sy, r)
+    rg.addColorStop(0, 'rgba(150,156,166,0.9)')
+    rg.addColorStop(1, 'rgba(150,156,166,0)')
+    x.fillStyle = rg
+    x.beginPath(); x.arc(sx, sy, r, 0, Math.PI * 2); x.fill()
+  })
+  x.globalAlpha = 1
   return new THREE.CanvasTexture(c)
 }
 
+/* the soft halo around the moon */
+function moonGlowTexture(){
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const x = c.getContext('2d')
+  const g = x.createRadialGradient(128, 128, 20, 128, 128, 128)
+  g.addColorStop(0, 'rgba(214,226,246,0.5)')
+  g.addColorStop(0.35, 'rgba(190,206,234,0.18)')
+  g.addColorStop(0.7, 'rgba(160,180,216,0.05)')
+  g.addColorStop(1, 'rgba(140,164,204,0)')
+  x.fillStyle = g
+  x.beginPath(); x.arc(128, 128, 128, 0, Math.PI * 2); x.fill()
+  return new THREE.CanvasTexture(c)
+}
+
+/* The sun is a disc with a real limb, a hot core, and its own glow
+   layer. A single soft sprite reads as haze; a disc plus glow reads as
+   a sun you could look at. */
 function sunTexture(){
   const c = document.createElement('canvas')
-  c.width = c.height = 128
+  c.width = c.height = 256
   const x = c.getContext('2d')
-  const g = x.createRadialGradient(64, 64, 2, 64, 64, 62)
-  g.addColorStop(0, 'rgba(255,252,244,1)')
-  g.addColorStop(0.25, 'rgba(255,244,220,0.9)')
-  g.addColorStop(0.5, 'rgba(255,230,190,0.25)')
-  g.addColorStop(1, 'rgba(255,220,180,0)')
+  const g = x.createRadialGradient(128, 128, 8, 128, 128, 104)
+  g.addColorStop(0, 'rgba(255,255,250,1)')
+  g.addColorStop(0.55, 'rgba(255,250,228,1)')
+  g.addColorStop(0.82, 'rgba(255,238,196,1)')
+  g.addColorStop(0.94, 'rgba(255,228,176,0.96)')
+  g.addColorStop(0.985, 'rgba(255,222,166,0.55)')
+  g.addColorStop(1, 'rgba(255,220,160,0)')
   x.fillStyle = g
-  x.beginPath(); x.arc(64, 64, 62, 0, Math.PI * 2); x.fill()
+  x.beginPath(); x.arc(128, 128, 104, 0, Math.PI * 2); x.fill()
+  return new THREE.CanvasTexture(c)
+}
+
+/* atmospheric glow: broad, warm, and much larger than the disc */
+function sunGlowTexture(){
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const x = c.getContext('2d')
+  const g = x.createRadialGradient(128, 128, 10, 128, 128, 128)
+  g.addColorStop(0, 'rgba(255,246,214,0.62)')
+  g.addColorStop(0.22, 'rgba(255,238,196,0.34)')
+  g.addColorStop(0.5, 'rgba(255,226,170,0.12)')
+  g.addColorStop(0.78, 'rgba(255,214,150,0.03)')
+  g.addColorStop(1, 'rgba(255,208,140,0)')
+  x.fillStyle = g
+  x.fillRect(0, 0, 256, 256)
   return new THREE.CanvasTexture(c)
 }

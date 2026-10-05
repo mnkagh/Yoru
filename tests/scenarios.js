@@ -220,22 +220,47 @@ SCENARIOS.sakura = async ({ w, d, Y, $, rec, sleep }) => {
     for (let i = 0; i < 40; i++) y.tick(1/60, 3000 + i/60)
   }
   const cherry = y.atmosphere.cherry || []
-  rec('cherry trees exist along the walk', cherry.length >= 7, cherry.length + ' trees')
+  const sakura = y.atmosphere.sakura
+  rec('cherry trees exist along the walk', cherry.length >= 40, cherry.length + ' trees')
+  rec('the planting is a system, not a few trees', sakura && sakura.total >= 80,
+      sakura ? sakura.total + ' trees, ' + sakura.priority1 + ' priority rows' : 'no system')
+  rec('Nakameguro has a double row of river trees',
+      sakura && sakura.spots.filter(s => s.z < -51 && s.z > -71 && s.prio <= 2).length >= 20,
+      sakura ? sakura.spots.filter(s => s.z < -51 && s.z > -71 && s.prio <= 2).length + ' by the river' : '')
+  rec('trees are spread over the whole journey, not one block',
+      sakura && (sakura.spots.some(s => s.z > -30) && sakura.spots.some(s => s.z < -140)),
+      'front z=' + (sakura ? Math.min(...sakura.spots.map(s => s.z)).toFixed(0) : '') +
+      ' back z=' + (sakura ? Math.max(...sakura.spots.map(s => s.z)).toFixed(0) : ''))
 
-  // spring: blossom full, petals drifting
+  // spring at MEDIUM: a large share of the planting is in blossom
   settle('spring')
-  const bloom = cherry.map(t => t.userData.mat.opacity)
-  rec('spring: canopies in full blossom', bloom.every(o => o > 0.8),
-      'min ' + Math.min(...bloom).toFixed(2))
-  const naka = cherry.filter(t => t.position.z < -56 && t.position.z > -67).length
-  rec('Nakameguro river keeps its blossom cluster', naka >= 3, naka + ' by the river')
+  const m = y.atmosphere.sakura.mesh
+  const medCount = m.count
+  rec('spring: a large number of trees are blooming', medCount >= 40, medCount + ' blooming')
+  rec('spring: blossom material is opaque enough to read',
+      m.material.opacity > 0.85, 'opacity ' + m.material.opacity.toFixed(2))
+
+  // intensity must physically change how many trees bloom
+  const setI = (v) => { y.state.rainLevel = v; for (let i = 0; i < 20; i++) y.tick(1/60, 4000 + i/60) }
+  setI(0.45)
+  const lowCount = m.count
+  setI(1.7)
+  const highCount = m.count
+  rec('LOW shows fewer blooming trees than HIGH', highCount > lowCount,
+      'low ' + lowCount + ' -> high ' + highCount)
+  setI(1)
+
+  // wind actually moves the canopy
+  const m0 = m.instanceMatrix.array.slice(0, 16).join(',')
+  for (let i = 0; i < 30; i++) y.tick(1/60, 5000 + i/60)
+  const m1 = m.instanceMatrix.array.slice(0, 16).join(',')
+  rec('spring wind moves the blossom', m0 !== m1)
 
   // winter: trunks still stand, blossom rests
   settle('snow')
-  rec('off-season: trees still stand', cherry.every(t => t.visible), 'all visible')
-  const rest = cherry.map(t => t.userData.mat.opacity)
-  rec('off-season: blossom rests', rest.every(o => o < 0.3),
-      'max ' + Math.max(...rest).toFixed(2))
+  rec('off-season: trees still stand', y.atmosphere.sakura.trunks.visible,
+      'trunks visible, ' + m.count + ' blooming')
+  rec('off-season: blossom rests', m.count < medCount, m.count + ' blooming vs ' + medCount)
 }
 
 /* ------------------------------------------------------------------ *
