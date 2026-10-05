@@ -760,10 +760,12 @@ const TOUR = [
     body:'Twelve seats. A menu written when you sit down. The kitchen has been running since five, and the chef will decide what tonight tastes like.' },
   { at:0.27, pos:[0, 2.6, -40],     look:[0, 1.6, -54],  district:'Shibuya',
     idx:'04', title:'Thousands of stories <em>cross here every night.</em>',
-    body:'The scramble crossing empties for perhaps ninety seconds each hour. That minute is the closest thing Tokyo has to a private moment.' },
+    body:'The scramble crossing empties for perhaps ninety seconds each hour. That minute is the closest thing Tokyo has to a private moment.',
+    ref: MEDIA.shibuya.reference },
   { at:0.36, pos:[0.6, 2.0, -54],   look:[-1, 1.6, -68], district:'Nakameguro',
     idx:'05', title:'The Tokyo <em>most visitors never see.</em>',
-    body:'One street back from the light the volume drops completely. Low-rise cafés, a river two blocks over, and a cat that owns the pavement.' },
+    body:'One street back from the light the volume drops completely. Low-rise cafés, a river two blocks over, and a cat that owns the pavement.',
+    ref: MEDIA.sakura.reference },
   { at:0.45, pos:[-0.8, 2.1, -68],  look:[1, 1.8, -82],  district:'Roppongi',
     idx:'06', title:'A city that <em>rewards the detour.</em>',
     body:'Galleries on the upper floors and nothing on the street to advertise them. The loudest district in Tokyo is quiet from this side of the road.' },
@@ -778,7 +780,8 @@ const TOUR = [
     body:'Electronics, manga, games and model kits, stacked to the ceiling. The trains run under the district rather than through it, and you can hear them before you see them.' },
   { at:0.81, pos:[-0.4, 2.2, -124], look:[0, 1.8, -138], district:'Asakusa',
     idx:'10', title:'Older <em>than the city around it.</em>',
-    body:'Sensō-ji has been standing on this ground since the seventh century, and Nakamise still belongs to the shopkeepers rather than the coaches. Lanterns, not screens.' },
+    body:'Sensō-ji has been standing on this ground since the seventh century, and Nakamise still belongs to the shopkeepers rather than the coaches. Lanterns, not screens.',
+    ref: MEDIA.asakusa.reference },
   { at:0.90, pos:[0.4, 2.4, -138],  look:[0, 4, -152],   district:'Asakusa',
     idx:'11', title:'Lanterns <em>instead of screens.</em>',
     body:'Two thousand red lanterns on a single gate, and not one of them is trying to sell you anything. This is the part of Tokyo that predates all of it.' },
@@ -822,9 +825,10 @@ const chaptersEl = $('chapters')
 TOUR.forEach((c, i) => {
   const d = document.createElement('section')
   d.className = 'chapter' + (i % 2 ? ' right' : '')
-  d.innerHTML = '<div class="idx mono">' + c.idx + ' / ' + c.district + '</div>' +
-                '<h2>' + c.title + '</h2>' +
-                '<p>' + c.body + '</p>'
+    d.innerHTML = '<div class="idx mono">' + c.idx + ' / ' + c.district + '</div>' +
+                  '<h2>' + c.title + '</h2>' +
+                  '<p>' + c.body + '</p>' +
+                  (c.ref ? '<a class="chap-ref mono" href="' + c.ref.url + '" target="_blank" rel="noopener">Official guide ↗</a>' : '')
   chaptersEl.appendChild(d)
 })
 
@@ -2049,7 +2053,8 @@ const LOCATIONS = [
     imagePage:'https://commons.wikimedia.org/wiki/File:Main_Hall,_Sensō-ji_Temple,_Tokyo,_20240824_1104_5619.jpg',
     sources:['Official site: senso-ji.jp (English page confirms 2-3-1 Asakusa)',
       'Asakusa guide: <a href="https://www.japan.travel/en/destinations/kanto/tokyo/asakusa-and-around/" target="_blank" rel="noopener">japan.travel ↗</a>',
-      'Night-ride footage (4K, opens on Commons): <a href="https://commons.wikimedia.org/wiki/File:4K_Tokyo_Night_Riding_Highway_Tour_in_Asakusa_-_Motorcycle_%26_Walking_Travel_in_Japan.webm" target="_blank" rel="noopener">Kaminarimon by bike ↗</a> (Japan Travel Rec, CC BY 3.0)'] },
+      'Night-ride footage (4K, opens on Commons): <a href="https://commons.wikimedia.org/wiki/File:4K_Tokyo_Night_Riding_Highway_Tour_in_Asakusa_-_Motorcycle_%26_Walking_Travel_in_Japan.webm" target="_blank" rel="noopener">Kaminarimon by bike ↗</a> (Japan Travel Rec, CC BY 3.0)',
+      'More Asakusa photographs: <a href="https://commons.wikimedia.org/wiki/Category:Asakusa" target="_blank" rel="noopener">Commons category ↗</a> (licences on file pages)'] },
   { id:'meiji', name:'Meiji Jingu', nameJa:'明治神宮', cat:'Culture', ward:'Yoyogi, Shibuya City',
     addr:'1-1 Yoyogikamizonocho, Shibuya-ku', lat:35.6764, lng:139.6993,
     cuisine:'—', famous:'A forest of over a hundred thousand donated trees, one hundred metres from Shibuya.',
@@ -3210,8 +3215,16 @@ function showDish(i){
   $('dish-ask').textContent = d.ask
   $('dish-where').textContent = d.where
   $('dish-etq').textContent = d.etq
-  drawDishArt($('dish-fallback'), d)
-  loadDishImage(d)
+    drawDishArt($('dish-fallback'), d)
+    loadDishImage(d)
+    /* gallery out-link where the registry holds one for this dish */
+    try {
+      const gal = (MEDIA[d.id] || {}).gallery
+      const credit = $('dish-credit')
+      if (gal && gal.url && !credit.hidden){
+        credit.innerHTML += ' · <a href="' + gal.url + '" target="_blank" rel="noopener">more photos ↗</a>'
+      }
+    } catch (e){}
   $('dish-links').innerHTML = ''
   const add = document.createElement('button')
   add.textContent = 'Add ' + d.n.toLowerCase() + ' to my Tokyo →'

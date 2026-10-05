@@ -126,6 +126,17 @@ SCENARIOS.discoveries = async ({ w, d, Y, $, rec, sleep }) => {
     const withUrl = [M.shibuya.image, M.shibuya.video, M.ramen.image]
     rec('every embedded file keeps source, licence and credit',
         withUrl.every(e => e && e.url && e.source && e.license && e.credit))
+    // every visitor-provided reference is reachable from the journey
+    const chapRefs = Array.from(d.querySelectorAll('.chap-ref')).map(a => a.href)
+    rec('chapters link their official guides', chapRefs.length === 3, chapRefs.length + ' guide links')
+    rec('shibuya chapter links Go Tokyo', chapRefs.some(h => h.includes('gotokyo.org')))
+    rec('asakusa chapter links JNTO', chapRefs.some(h => h.includes('japan.travel/en/destinations')))
+    rec('nakameguro chapter links the blossom guide', chapRefs.some(h => h.includes('japan.travel/en/spot/377')))
+    rec('ramen panel links its photo gallery', /Category:Ramen_of_Tokyo/.test(($('dish-credit') || {}).innerHTML || ''))
+    y.showLocation('sensoji')
+    await sleep(200)
+    rec('sensoji links the asakusa gallery', /Category:Asakusa/.test(($('loc-sources') || {}).innerHTML || ''))
+    y.closeLocation()
   }
   closePanels()
 }
