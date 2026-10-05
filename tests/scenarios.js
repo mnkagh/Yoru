@@ -835,3 +835,146 @@ SCENARIOS.regression = async ({ w, d, Y, $, rec, sleep }) => {
   rec('reduced-motion preference is readable at runtime', typeof y.reduced === 'boolean',
       'reduced=' + y.reduced)
 }
+
+/* ------------------------------------------------------------------ *
+ * WORLD SYSTEMS: buildings, characters, vehicles, signals, train      *
+ * ------------------------------------------------------------------ */
+SCENARIOS.world = async ({ w, d, Y, $, rec, sleep }) => {
+  const y = Y()
+  if (!y) return
+  const tick = (n = 30, dt = 1 / 60) => { for (let i = 0; i < n; i++) y.tick(dt, 100 + i * dt) }
+
+  /* ---- buildings are modular, not boxes ---- */
+  const b = y.buildings
+  rec('buildings were built', b.length > 20, b.length + ' groups')
+  const kinds = new Set(b.map(g => g.userData.archetype))
+  rec('multiple building archetypes in use', kinds.size >= 4, [...kinds].join(', '))
+  const meshesPer = b.map(g => g.userData.meshes.length)
+  rec('each building is merged into few draw calls',
+      meshesPer.every(n => n > 0 && n <= 16),
+      'max ' + Math.max(...meshesPer) + ' per building')
+  /* geometry must actually differ between archetypes, not just be retextured */
+  const vertCounts = [...kinds].map(k => {
+    const g = b.find(x => x.userData.archetype === k)
+    let v = 0
+    g.userData.meshes.forEach(m => { v += m.geometry.attributes.position.count })
+    return k + ':' + v
+  })
+  const uniqueVerts = new Set(vertCounts.map(s => s.split(':')[1]))
+  rec('archetypes have genuinely different geometry', uniqueVerts.size >= 4,
+      vertCounts.join(' '))
+  /* districts must differ in silhouette, so compare height distributions */
+  const byDistrict = {}
+  b.forEach(g => {
+    const k = g.userData.district
+    ;(byDistrict[k] = byDistrict[k] || []).push(g.userData.height)
+  })
+  const meanH = k => byDistrict[k].reduce((s, v) => s + v, 0) / byDistrict[k].length
+  rec('Asakusa is low, Shinjuku is tall',
+      meanH('asakusa') < meanH('shinjuku'),
+      'asakusa ' + meanH('asakusa').toFixed(1) + 'm vs shinjuku ' + meanH('shinjuku').toFixed(1) + 'm')
+
+  /* ---- characters are modular ---- */
+  rec('pedestrians exist', y.peds.length > 6, y.peds.length + ' people')
+  const partCounts = y.peds.map(p => {
+    let n = 0
+    p.traverse(o => { if (o.isMesh) n++ })
+    return n
+  })
+  rec('each person has multiple merged parts (not one primitive)',
+      partCounts.every(n => n >= 4), 'min ' + Math.min(...partCounts) + ' parts')
+  const heights = y.peds.map(p => p.userData.height)
+  rec('people vary in height', Math.max(...heights) - Math.min(...heights) > 0.05,
+      (Math.min(...heights)).toFixed(2) + '-' + (Math.max(...heights)).toFixed(2))
+  const hair = new Set(y.peds.map(p => p.userData.hairStyle))
+  rec('people vary in hairstyle', hair.size >= 3, [...hair].join(','))
+
+  /* ---- vehicles have per-type silhouettes ---- */
+  const vkinds = new Set(y.cars.map(c => c.userData.kind))
+  rec('several vehicle types in traffic', vkinds.size >= 4, [...vkinds].join(', '))
+  const taxi = y.cars.find(c => c.userData.kind === 'taxi')
+  const bus = y.cars.find(c => c.userData.kind === 'bus')
+  if (taxi && bus){
+    /* Measure the vehicle's OWN dimensions: the cars are yawed into their
+       lane, and an axis-aligned box around a yawed car is not its size. */
+    const dims = (o) => {
+      const keep = o.rotation.y
+      o.rotation.y = 0
+      o.updateMatrixWorld(true)
+      const b = y.bbox(o)
+      o.rotation.y = keep
+      o.updateMatrixWorld(true)
+      return b
+    }
+    const tb = dims(taxi), bb2 = dims(bus)
+    rec('bus is longer and taller than a taxi', bb2.l > tb.l * 1.5 && bb2.h > tb.h,
+        'taxi ' + tb.l.toFixed(1) + 'x' + tb.w.toFixed(1) + 'm, bus ' + bb2.l.toFixed(1) + 'x' + bb2.w.toFixed(1) + 'm')
+    rec('taxi is a car-sized vehicle, not a box', tb.l > 3.5 && tb.l < 5.4 && tb.h > 1.2 && tb.h < 2.0,
+        'taxi ' + tb.l.toFixed(2) + 'm long, ' + tb.w.toFixed(2) + 'm wide, ' + tb.h.toFixed(2) + 'm tall')
+    rec('bus is an 11m double-length bus', bb2.l > 9.5 && bb2.l < 13,
+        bb2.l.toFixed(2) + 'm long')
+  }
+  rec('vehicles have rolling wheels',
+      y.cars.filter(c => c.userData.wheels && c.userData.wheels.length).length >= 6)
+
+  /* ---- traffic signals synchronise traffic and people ---- */
+  y.setSignal('green', true)
+  const zBefore = y.cars.filter(c => c.visible).map(c => c.position.z)
+  tick(60)
+  const movedOnGreen = y.cars.filter(c => c.visible)
+    .some((c, i) => Math.abs(c.position.z - zBefore[i]) > 0.05)
+  rec('vehicles move on green', movedOnGreen)
+y.setSignal('red', true)
+  /* place one vehicle just upstream of each stop line and prove it is held
+     there, rather than assuming the whole stream happens to be near a line */
+  const inbound = y.cars.filter(c => c.visible)
+  inbound.forEach(c => {
+    c.position.z = c.userData.dir < 0 ? -40 : -60
+  })
+  const zAt = inbound.map(c => c.position.z)
+  tick(180)
+  const heldOk = inbound.every((c, i) => {
+    const line = c.userData.dir < 0 ? -44 : -56
+    if (c.userData.dir < 0) return c.position.z >= line - 0.05
+    return c.position.z <= line + 0.05
+  })
+  rec('vehicles are held at the stop line on red', heldOk,
+      inbound.map(c => c.position.z.toFixed(1)).join(' '))
+  rec('a vehicle reaches its stop line and waits',
+      inbound.some(c => Math.abs(Math.abs(c.position.z) - 44) < 0.2 ||
+                          Math.abs(Math.abs(c.position.z) - 56) < 0.2))
+  const sig = y.signals && y.signals[0]
+  if (sig){
+    const lit = k => sig.userData.lenses[k].material.color.getHex() === sig.userData.lenses[k].userData.base.getHex()
+    rec('red lens is lit when the signal is red', lit('red') && !lit('green'))
+    rec('pedestrian head shows green while vehicles are stopped',
+        sig.userData.pedGreen.material.color.getHex() === sig.userData.pedGreen.userData.base.getHex())
+    y.setSignal('green', true)
+    rec('signal flips to green on its lenses', lit('green') && !lit('red'))
+  }
+  /* let the cycle run again */
+  y.setSignal('green', false)
+
+  /* ---- the train actually runs ---- */
+  const z0 = y.train.position.z
+  /* the train waits down the line, so advance long enough to see it move */
+  tick(2600)
+  const z1 = y.train.position.z
+  rec('train physically moves', Math.abs(z1 - z0) > 1, z0.toFixed(1) + ' -> ' + z1.toFixed(1))
+  rec('train wheels are on the track', Math.abs(y.train.position.x - y.trackway.trackX) < 0.01)
+  rec('train has rolling stock of real length', y.train.userData.length > 60,
+      y.train.userData.length.toFixed(0) + 'm')
+  /* drive the clock to force an arrival, then confirm doors open */
+  let doorsOpened = false, sawDwell = false
+  for (let i = 0; i < 4000 && !doorsOpened; i++){
+    y.tick(1 / 30, 200 + i / 30)
+    const u = y.train.userData
+    if (u.phase === 'dwell') sawDwell = true
+    if (u.doorT > 0.5) doorsOpened = true
+  }
+  rec('train reaches the platform and dwells', sawDwell)
+  rec('train doors open at the platform', doorsOpened,
+      'doorT=' + y.train.userData.doorT.toFixed(2))
+}
+
+/* drive the signal system to a known state without waiting for the cycle */

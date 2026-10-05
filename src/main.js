@@ -9,6 +9,7 @@ import {
   animateCharacter, mulberry
 } from './characters.js'
 import { makeVehicleMaterials, buildVehicle, dressVehicleForWeather, VEHICLE_TYPES } from './vehicles.js'
+import { makeRailMaterials, buildTrackway, buildTrain, updateTrain } from './rail.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -647,6 +648,8 @@ const signals = []
 const SIGNAL_CYCLE = ['green', 'yellow', 'red']
 let signalIdx = 0, signalHold = 0
 function updateSignals(dt){
+  /* a held signal does not advance, so a specific state can be sustained */
+  if (state.freezeSignal){ state.light = state.heldLight || state.light; paintSignals(state.light); return }
   signalHold -= dt
   if (signalHold <= 0){
     signalIdx = (signalIdx + 1) % SIGNAL_CYCLE.length
@@ -654,7 +657,10 @@ function updateSignals(dt){
     signalHold = SIGNAL_CYCLE[signalIdx] === 'yellow' ? 2.4 : 9.5
     state.light = SIGNAL_CYCLE[signalIdx]
   }
-  const cur = state.light
+  paintSignals(state.light)
+}
+/* paint the lenses for a given state; also the entry point tests use */
+function paintSignals(cur){
   signals.forEach(s => {
     for (const k of ['red','yellow','green'])
       s.userData.lenses[k].material.color.copy(
@@ -665,6 +671,16 @@ function updateSignals(dt){
     s.userData.pedGreen.material.color.copy(
       cur === 'red' ? s.userData.pedGreen.userData.base : s.userData.pedGreen.userData.off)
   })
+}
+/* force a signal state without waiting out the cycle; freeze holds it there */
+function setSignal(want, freeze){
+  const i = SIGNAL_CYCLE.indexOf(want)
+  if (i > -1) signalIdx = i
+  state.light = want
+  state.heldLight = want
+  state.freezeSignal = !!freeze
+  signalHold = want === 'yellow' ? 2.4 : 9.5
+  paintSignals(state.light)
 }
 const vehicleMats = makeVehicleMaterials()
 const cars = []
@@ -688,30 +704,58 @@ for (let i = 0; i < 16; i++){
   addVehicle(type, lane + (vehSeed % 7) * 0.2, -12 - i * 7.5 - (vehSeed % 4), dir)
 }
 
-const train = new THREE.Group()
-const trainBodyMat = new THREE.MeshBasicMaterial({ color: 0x141a26 })
-const trainWinMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.85 })
-for(let i=0;i<4;i++){
-  const car = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.7, 3.4), trainBodyMat)
-  car.position.set(0, 1.55, -i*3.8)
-  const win = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.8), trainWinMat)
-  win.position.set(1.31, 1.8, -i*3.8)
-  win.rotation.y = Math.PI/2
-  const win2 = win.clone()
-  win2.position.x = -1.31
-  win2.rotation.y = -Math.PI/2
-  car.add(win); car.add(win2)
-  train.add(car)
-}
-const headlight = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), new THREE.MeshBasicMaterial({ color: 0xfff6d8 }))
-headlight.position.set(0, 1.2, 1.75)
-train.add(headlight)
-train.position.set(-14, 0, -58)
-train.userData = { type:'train', doorT: 0 }
-city.add(train)
-const trainHit = new THREE.Mesh(new THREE.BoxGeometry(4, 3.4, 16), new THREE.MeshBasicMaterial({ visible:false }))
+/* --- the railway ------------------------------------------------------------
+   A real running train (src/rail.js): viaduct deck, ballast, sleepers and
+   rails along the whole line, a platform with a tactile edge, and a pooled
+   four-car consist that approaches, stops, opens its doors, departs and
+   wraps around. */
+let pedSeed = 991
+const railMats = makeRailMaterials()
+const trackway = buildTrackway(city, railMats)
+const train = buildTrain({ materials: railMats, parent: city, cars: 4 })
+const trainHit = new THREE.Mesh(new THREE.BoxGeometry(4, 3.6, 18), new THREE.MeshBasicMaterial({ visible:false }))
 trainHit.userData = { type:'train' }
 city.add(trainHit)
+/* people waiting on the platform, built after the character materials
+   exist (see buildPlatformPeople below) */
+const platformPeople = []
+function buildPlatformPeople(){
+  for (let i = 0; i < 5; i++){
+    const g = buildCharacter({
+      seed: (pedSeed += 611953), materials: charMats, parent: city
+    })
+    const r = mulberry(pedSeed)
+    g.position.set(-14 + 3.4 + r() * 1.6, 1.06, -6 - i * 4.2 - r() * 1.4)
+    g.rotation.y = -Math.PI / 2 + (r() - 0.5) * 0.4
+    g.userData = { type: 'waiting', seed: pedSeed, bob: r() * 6, waiting: true }
+    platformPeople.push(g)
+  }
+}
+/* a signal that governs entry to the platform */
+const railSignal = new THREE.Group()
+{
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 3.4, 8),
+    new THREE.MeshBasicMaterial({ color: 0x2a2e35 }))
+  mast.position.y = 2.6
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.9, 0.22),
+    new THREE.MeshBasicMaterial({ color: 0x14171c }))
+  head.position.y = 4.0
+  railSignal.add(mast, head)
+  const lenses = {}
+  ;[['red',0xff3020,0.30],['green',0x30d060,-0.06]].forEach(([k, hex, off]) => {
+    const l = new THREE.Mesh(new THREE.CircleGeometry(0.10, 12),
+      new THREE.MeshBasicMaterial({ color: hex }))
+    l.position.set(0, 4.0 + off, 0.12)
+    l.userData.base = new THREE.Color(hex)
+    l.userData.off = new THREE.Color(hex).multiplyScalar(0.16)
+    l.userData.key = k
+    railSignal.add(l)
+    lenses[k] = l
+  })
+  railSignal.position.set(-11.2, 1.06, 4)
+  railSignal.userData = { lenses }
+  city.add(railSignal)
+}
 
 /* --- people ---------------------------------------------------------------
    Full modular characters (src/characters.js): legs, shoes, torso, arms,
@@ -747,8 +791,8 @@ function makePed(zone){
   g.traverse(o => { if (o.isMesh) o.userData = { type:'ped', ref: g } })
   peds.push(g)
 }
-let pedSeed = 991
 pedZones.forEach(z => { for (let i = 0; i < z.n; i++) makePed(z) })
+buildPlatformPeople()
 
 const cat = new THREE.Group()
 const catMat = new THREE.MeshBasicMaterial({ color: 0x05060a })
@@ -4569,6 +4613,40 @@ function drip(){
   o.connect(g); g.connect(masterGain)
   o.start(); o.stop(audioCtx.currentTime + 0.26)
 }
+/* a train passing: filtered noise swell plus a low rail rumble, so an
+   arrival is audible before it is visible */
+function railSound(level, dur){
+  if (!audioCtx || !soundOn) return
+  const t0 = audioCtx.currentTime
+  const len = Math.floor(audioCtx.sampleRate * dur)
+  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate)
+  const d = buf.getChannelData(0)
+  let last = 0
+  for (let i = 0; i < len; i++){
+    const env = Math.sin(Math.PI * (i / len))
+    const w = Math.random() * 2 - 1
+    last = (last + 0.06 * w) / 1.06
+    d[i] = last * 3.2 * env
+  }
+  const src = audioCtx.createBufferSource()
+  src.buffer = buf
+  const bp = audioCtx.createBiquadFilter()
+  bp.type = 'bandpass'; bp.frequency.value = 420; bp.Q.value = 0.6
+  const g = audioCtx.createGain()
+  g.gain.value = 0.075 * level
+  src.connect(bp); bp.connect(g); g.connect(masterGain)
+  src.start(t0)
+  /* the low rumble under it */
+  const o = audioCtx.createOscillator(), og = audioCtx.createGain()
+  o.type = 'sawtooth'
+  o.frequency.setValueAtTime(46, t0)
+  o.frequency.linearRampToValueAtTime(30, t0 + dur)
+  og.gain.setValueAtTime(0.0001, t0)
+  og.gain.linearRampToValueAtTime(0.035 * level, t0 + dur * 0.3)
+  og.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+  o.connect(og); og.connect(masterGain)
+  o.start(t0); o.stop(t0 + dur + 0.05)
+}
 function chime(){
   if (!audioCtx || !soundOn) return
   ;[880, 659].forEach((f, i) => {
@@ -4748,17 +4826,67 @@ function updateWorld(dt, t, doRender = true){
   gradePass.uniforms.time.value = t
 
   /* city life — atmosphere module owns sky, fog, rain, stars, snow, petals */
+  /* one signal system drives the lane, the crossing head and the people */
   state.trafficT += dt
-  const ph = state.trafficT % 13
-  state.light = ph < 7 ? 'green' : ph < 8.5 ? 'yellow' : 'red'
+  updateSignals(dt)
   trafficLight.r.material.color.setHex(state.light === 'red' ? 0xc04a3c : 0x3d1a16)
   trafficLight.y.material.color.setHex(state.light === 'yellow' ? 0xd8b04a : 0x453a1e)
   trafficLight.g.material.color.setHex(state.light === 'green' ? 0x4a8a63 : 0x1e3226)
 
   const atm = atmosphere.state.cur
   const timeIsNight = atm.light < 0.62
-  /* the signal is the single source of truth for both traffic and people */
-  updateSignals(dt)
+  /* --- the train event ----------------------------------------------------
+     The consist moves, decelerates into the platform, opens its doors,
+     departs and wraps. Audio and the door glow follow the same state. */
+  const railInfo = updateTrain(train, dt, {
+    trackX: trackway.trackX,
+    onSound: (kind) => {
+      if (!soundOn || !audioCtx) return
+      if (kind === 'approach') railSound(0.5, 3.2)
+      else if (kind === 'arrive'){ railSound(0.9, 1.1); chime() }
+      else if (kind === 'depart') railSound(0.8, 2.0)
+      else if (kind === 'away') railSound(0.35, 2.4)
+    }
+  })
+  /* interior lights read through the windows; dim them by day */
+  const railWinK = timeIsNight ? 1 : 0.42
+  if (railMats.window) railMats.window.color.setRGB(railWinK, railWinK * 0.85, railWinK * 0.62)
+  if (railMats.doorGlass) railMats.doorGlass.color.setRGB(railWinK, railWinK * 0.81, railWinK * 0.56)
+  /* headlights at night and in rain; tail lamps always when moving away */
+  if (railMats.headlight){
+    const hk = timeIsNight ? 1 : (atm.rain > 0.2 ? 0.8 : 0.4)
+    railMats.headlight.color.setRGB(hk, hk * 0.96, hk * 0.85)
+  }
+  if (railMats.taillight){
+    const tk = railInfo.phase === 'depart' || railInfo.phase === 'away' ? 1 : 0.5
+    railMats.taillight.color.setRGB(tk, tk * 0.16, tk * 0.13)
+  }
+  /* the platform door glow lights when the doors are actually open */
+  doorGlow.material.opacity = lerp(doorGlow.material.opacity, railInfo.doorsOpen ? 0.55 : 0, 0.12)
+  /* the railway signal clears while a train is approaching or dwelling */
+  if (railSignal.userData.lenses){
+    const clear = railInfo.phase === 'approach' || railInfo.phase === 'dwell'
+    const L = railSignal.userData.lenses
+    for (const k of ['red','green'])
+      L[k].material.color.copy(clear ? (k === 'green' ? L[k].userData.base : L[k].userData.off)
+                                     : (k === 'red' ? L[k].userData.base : L[k].userData.off))
+  }
+  /* waiting people turn to watch it arrive, then step forward */
+  platformPeople.forEach((p, i) => {
+    const u = p.userData
+    const near = clamp(1 - Math.abs(train.position.z - p.position.z) / 26, 0, 1)
+    if (u.waiting){
+      u.turn = lerp(u.turn || 0, near * 0.5, 0.05)
+      p.rotation.y = -Math.PI / 2 + (u.turn || 0)
+      if (railInfo.doorsOpen){
+        /* step toward the doors while they are open */
+        p.position.x = lerp(p.position.x, -9.4, 0.02)
+      } else if (railInfo.phase === 'away'){
+        p.position.x = lerp(p.position.x, -10.4 + (i % 3) * 0.6, 0.01)
+      }
+    }
+  })
+  trainHit.position.set(trackway.trackX, 2.6, train.position.z)
   cars.forEach(c => {
     if (!c.visible) return
     const u = c.userData
@@ -4769,9 +4897,12 @@ function updateWorld(dt, t, doRender = true){
     const slowFor = state.light === 'yellow' ? 0.35 : 1
     let nz = c.position.z + u.dir * u.speed * 0.55 * atm.traffic * slowFor * dt
     if (stopped){
-      const stopZ = c.position.z > -50 ? -44 : -56
-      if (u.dir < 0 && c.position.z > stopZ && nz <= stopZ) nz = stopZ
-      if (u.dir > 0 && c.position.z < stopZ && nz >= stopZ) nz = stopZ
+      /* the stop line for the direction of travel: -44 for traffic heading
+         up the street, -56 for traffic heading down. A vehicle exactly on
+         the line is held, so the test is inclusive. */
+      const stopZ = u.dir < 0 ? -44 : -56
+      if (u.dir < 0 && c.position.z >= stopZ && nz <= stopZ) nz = stopZ
+      if (u.dir > 0 && c.position.z <= stopZ && nz >= stopZ) nz = stopZ
     }
     if (nz < -124) nz = 12
     if (nz > 12) nz = -124
@@ -5161,6 +5292,13 @@ if (import.meta.env && import.meta.env.DEV){
     get fireworks(){ return state.fireworks }, get fwBursts(){ return fwBursts },
     buildings: bldgGroups, ARCHETYPES, DISTRICT_PROFILES, buildingMats,
     charMats, renderer,
+    train, signals, trackway, setSignal, VEHICLE_TYPES, platformPeople, railMats,
+    /* world-space bounding box of an object, for silhouette assertions */
+    bbox(o){
+      const b = new THREE.Box3().setFromObject(o)
+      return { l: b.max.z - b.min.z, w: b.max.x - b.min.x, h: b.max.y - b.min.y,
+               min: b.min.toArray(), max: b.max.toArray() }
+    },
     /* deterministic test pump: advance the exact per-frame logic without rAF */
     tick(dt, t){ updateWorld(dt == null ? 1/60 : dt, t == null ? tGlobal + 1/60 : t, false) }
   }
