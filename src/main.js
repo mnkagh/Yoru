@@ -238,6 +238,10 @@ const farBuildings = []
 /* District massing: the street must read as different parts of Tokyo,
    not one repeated block. Heights, widths and street width vary by
    district; landmarks and street character are added per district below. */
+/* ------------------------------------------------------------ districts --
+   The journey runs down one street. Z ranges are chosen so the last
+   district (Odaiba) is a waterfront: the street opens out, the buildings
+   stop, and the bay begins. */
 function districtAtZ(z){
   if (z > 6) return 'shinjuku'
   if (z > -26) return 'nishishinjuku'
@@ -248,7 +252,8 @@ function districtAtZ(z){
   if (z > -96) return 'ginza'
   if (z > -110) return 'tsukiji'
   if (z > -124) return 'akihabara'
-  return 'asakusa'
+  if (z > -142) return 'asakusa'
+  return 'odaiba'
 }
 const DIST_ENV = {
   shinjuku:     { hMin:18, hMax:38, wMin:4.0, wMax:7.0, xBase:13 },
@@ -260,13 +265,16 @@ const DIST_ENV = {
   ginza:        { hMin:10, hMax:20, wMin:5.0, wMax:8.0, xBase:15 },
   tsukiji:      { hMin:4,  hMax:10, wMin:3.0, wMax:5.0, xBase:10 },
   akihabara:    { hMin:12, hMax:26, wMin:3.5, wMax:6.0, xBase:11 },
-  asakusa:      { hMin:4,  hMax:10, wMin:3.0, wMax:6.0, xBase:11 }
+  asakusa:      { hMin:4,  hMax:10, wMin:3.0, wMax:6.0, xBase:11 },
+  /* ODAIBA: the street opens out. Wide footprints, low horizontal massing,
+     a generous plaza, and nothing close to the carriageway. */
+  odaiba:       { hMin:6,  hMax:14, wMin:10.0,wMax:17.0, xBase:34 }
 }
 /* --- the street frontage ----------------------------------------------
    Real modular buildings, placed along both kerbs. Every building's
    archetype comes from its district profile, so Asakusa is built from
    traditional lowrises and Shinjuku from towers. */
-for(let z = 8; z > -152; z -= 6.4){
+for(let z = 8; z > -178; z -= 6.4){
   const dist = districtAtZ(z)
   const env = DIST_ENV[dist] || DIST_ENV.shinjuku
   const alley = (z < -60 && z > -84)
@@ -331,7 +339,201 @@ for(let i=0;i<70;i++){
   }
 }
 
-/* ---------------- district landmarks (geography must make sense) -------
+/* ======================= TOKYO BAY / ODAIBA =========================
+   Past Asakusa the city ends and the water begins. This is the payoff
+   of the whole journey: a bay, a promenade, a suspension bridge, the
+   skyline of the city you have just walked through, seen from outside
+   it, and open air instead of another wall of buildings.              */
+let pedSeed = 991
+let bayWater = null
+const bayGroup = new THREE.Group()
+const bayWaterMat = new THREE.MeshBasicMaterial({ color: 0x0a1420 })
+const BAY_Z = -178
+{
+  /* the water: a wide plane running to the horizon */
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(700, 420), bayWaterMat)
+  water.rotation.x = -Math.PI / 2
+  water.position.set(0, -0.6, BAY_Z - 205)
+  bayWater = water
+  bayGroup.add(water)
+
+  /* the shoreline: a seawall, a stepped edge and a promenade */
+  const seawall = new THREE.Mesh(new THREE.BoxGeometry(240, 2.2, 3),
+    new THREE.MeshBasicMaterial({ color: 0x22262c }))
+  seawall.position.set(0, -0.5, BAY_Z - 1.5)
+  bayGroup.add(seawall)
+  for (let s = 0; s < 3; s++){
+    const step = new THREE.Mesh(new THREE.BoxGeometry(240, 0.35, 1.6),
+      new THREE.MeshBasicMaterial({ color: 0x1b1f24 }))
+    step.position.set(0, -0.9 + s * 0.35, BAY_Z - 3.2 - s * 1.7)
+    bayGroup.add(step)
+  }
+  /* promenade paving, wider than any street in the city */
+  const prom = new THREE.Mesh(new THREE.PlaneGeometry(150, 46),
+    new THREE.MeshBasicMaterial({ color: 0x191d22 }))
+  prom.rotation.x = -Math.PI / 2
+  prom.position.set(0, 0.04, BAY_Z - 24)
+  bayGroup.add(prom)
+  /* handrail along the water's edge */
+  for (let x = -70; x <= 70; x += 5){
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.0, 0.12),
+      new THREE.MeshBasicMaterial({ color: 0x2a2e34 }))
+    post.position.set(x, 0.55, BAY_Z - 44)
+    bayGroup.add(post)
+  }
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(145, 0.08, 0.08),
+    new THREE.MeshBasicMaterial({ color: 0x2a2e34 }))
+  rail.position.set(0, 1.02, BAY_Z - 44)
+  bayGroup.add(rail)
+
+  /* RAINBOW BRIDGE: two towers, a suspension cable, and a lit deck.
+     This is the one piece of Tokyo infrastructure that reads instantly. */
+  const bridge = new THREE.Group()
+  const towerMat = new THREE.MeshBasicMaterial({ color: 0xdcd8d0 })
+  const cableMat = new THREE.MeshBasicMaterial({ color: 0xc04a3c })
+  const deckMat = new THREE.MeshBasicMaterial({ color: 0x3a4048 })
+  const BX = -46, BZ = BAY_Z - 96
+  for (const t of [-1, 1]){
+    const tower = new THREE.Group()
+    for (const s of [-1, 1]){
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(1.5, 34, 1.5), towerMat)
+      leg.position.set(s * 3.4, 17, 0)
+      tower.add(leg)
+    }
+    for (const h of [10, 22, 33]){
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(8.2, 1.1, 1.6), towerMat)
+      beam.position.set(0, h, 0)
+      tower.add(beam)
+    }
+    tower.position.set(BX, 0, BZ + t * 62)
+    bridge.add(tower)
+  }
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(9, 1.4, 190), deckMat)
+  deck.position.set(BX, 9.4, BZ)
+  bridge.add(deck)
+  /* main cable: a sagging span between the towers */
+  for (const t of [-1, 1]){
+    const pts = []
+    for (let i = 0; i <= 24; i++){
+      const k = i / 24
+      const z = BZ + t * 62 * (1 - k) + t * 66 * k
+      const y = 30 - Math.sin(k * Math.PI) * 15
+      pts.push(new THREE.Vector3(BX, y, z))
+    }
+    const curve = new THREE.CatmullRomCurve3(pts)
+    const line = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, 32, 0.42, 6, false), cableMat)
+    bridge.add(line)
+  }
+  /* vertical hangers */
+  for (let i = -5; i <= 5; i++){
+    if (i === 0) continue
+    const z = BZ + i * 12
+    const sag = 1 - Math.abs(i) / 6
+    const top = 30 - (1 - sag) * 15
+    const hang = new THREE.Mesh(new THREE.BoxGeometry(0.14, top - 10.4, 0.14), cableMat)
+    hang.position.set(BX, (top + 10.4) / 2, z)
+    bridge.add(hang)
+  }
+  bayGroup.add(bridge)
+
+  /* the skyline across the water: Odaiba's own towers, then Tokyo behind.
+     This is the view that makes the rooftop ending land. */
+  const farMat = new THREE.MeshBasicMaterial({ color: 0x161c26 })
+  const farLit = new THREE.MeshBasicMaterial({ color: 0x2a3342 })
+  const R = 120
+  for (let i = 0; i < 46; i++){
+    const a = -Math.PI * 0.5 + (Math.random() - 0.5) * 2.4
+    const dist = 150 + Math.random() * 320
+    const w = 8 + Math.random() * 22
+    const h = 20 + Math.random() * 90
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w),
+      Math.random() > 0.45 ? farLit : farMat)
+    m.position.set(Math.sin(a) * dist - 40, h / 2 - 1, BAY_Z - 90 - Math.cos(a) * dist * 0.9)
+    bayGroup.add(m)
+  }
+  /* and the city itself, seen from the far side of the bay */
+  for (let i = 0; i < 70; i++){
+    const dist = 380 + Math.random() * 260
+    const w = 10 + Math.random() * 26
+    const h = 18 + Math.random() * 70
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w * 0.8),
+      Math.random() > 0.5 ? farLit : farMat)
+    m.position.set((Math.random() - 0.5) * 900, h / 2 - 1, BAY_Z - 260 - dist * 0.5)
+    bayGroup.add(m)
+  }
+
+  /* waterfront lighting: bollard lamps along the promenade, and the
+     promenade glow that makes wet pavement read at night */
+  const bollardMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0 })
+  for (let x = -60; x <= 60; x += 12){
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.9, 6),
+      new THREE.MeshBasicMaterial({ color: 0x22262c }))
+    post.position.set(x, 0.45, BAY_Z - 30)
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), bollardMat)
+    lamp.position.set(x, 0.98, BAY_Z - 30)
+    bayGroup.add(post, lamp)
+  }
+  /* Yurikamome context: an elevated people mover on twin guideways */
+  const yuri = new THREE.Group()
+  const guideMat = new THREE.MeshBasicMaterial({ color: 0x4a5058 })
+  for (const s of [-1, 1]){
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 200), guideMat)
+    beam.position.set(s * 2.6, 8.2, 0)
+    yuri.add(beam)
+    /* piers every 20m */
+    for (let i = -4; i <= 4; i++){
+      const pier = new THREE.Mesh(new THREE.BoxGeometry(1.2, 8.2, 1.2), guideMat)
+      pier.position.set(s * 2.6, 4.1, i * 22)
+      yuri.add(pier)
+    }
+  }
+  /* a train on it, parked mid-run */
+  const yuriCar = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.6, 16),
+    new THREE.MeshBasicMaterial({ color: 0xd8d4cc }))
+  yuriCar.position.set(0, 10.1, 18)
+  const yuriWin = new THREE.Mesh(new THREE.BoxGeometry(2.66, 0.9, 15),
+    new THREE.MeshBasicMaterial({ color: 0xffd9a0 }))
+  yuriWin.position.set(0, 10.6, 18)
+  yuri.add(yuriCar, yuriWin)
+  yuri.position.set(26, 0, BAY_Z - 40)
+  yuri.rotation.y = Math.PI / 2
+  bayGroup.add(yuri)
+
+  city.add(bayGroup)
+}
+/* the promenade crowd: families, tourists, cyclists. Odaiba is the one
+   place on this journey with open air and room to move. Built after the
+   character materials exist (see buildBayCrowd). */
+const bayCrowd = []
+function buildBayCrowd(){
+  for (let i = 0; i < 14; i++){
+    const g = buildCharacter({
+      seed: (pedSeed += 15485863), materials: charMats, parent: city
+    })
+    const r = mulberry(pedSeed)
+    const lane = i % 3
+    g.position.set(
+      -34 + r() * 68,
+      0,
+      BAY_Z - 10 - lane * 9 - r() * 6)
+    g.userData = {
+      type: 'bayped', zone: { x:[-34, 34], z:[BAY_Z - 16, BAY_Z - 40] },
+      dir: r() < 0.5 ? 1 : -1,
+      speed: 0.4 + r() * 0.5, gait: 0.85 + r() * 0.4,
+      bob: r() * 10, rig: g.userData.rig,
+      height: g.userData.height, buildK: g.userData.buildK,
+      hairStyle: g.userData.hairStyle,
+      clothMat: g.userData.clothMat,
+      baseCol: g.userData.clothMat.color.clone(),
+      umbrella: g.userData.rig.umbrella
+    }
+    g.traverse(o => { if (o.isMesh) o.userData = { type:'ped', ref: g } })
+    bayCrowd.push(g)
+    peds.push(g)
+  }
+}
+   /* ---------------- district landmarks (geography must make sense) -------
    Skytree stands east of Asakusa (~1km from Senso-ji); Tokyo Tower
    rises south-west of Roppongi; the Meguro river runs through
    Nakameguro. All are silhouettes, not models — they read at distance. */
@@ -709,7 +911,6 @@ for (let i = 0; i < 16; i++){
    rails along the whole line, a platform with a tactile edge, and a pooled
    four-car consist that approaches, stops, opens its doors, departs and
    wraps around. */
-let pedSeed = 991
 const railMats = makeRailMaterials()
 const trackway = buildTrackway(city, railMats)
 const train = buildTrain({ materials: railMats, parent: city, cars: 4 })
@@ -793,6 +994,7 @@ function makePed(zone){
 }
 pedZones.forEach(z => { for (let i = 0; i < z.n; i++) makePed(z) })
 buildPlatformPeople()
+buildBayCrowd()
 
 const cat = new THREE.Group()
 const catMat = new THREE.MeshBasicMaterial({ color: 0x05060a })
@@ -1067,11 +1269,15 @@ const TOUR = [
     idx:'10', title:'Older <em>than the city around it.</em>',
     body:'Sensō-ji has been standing on this ground since the seventh century, and Nakamise still belongs to the shopkeepers rather than the coaches. Lanterns, not screens.',
     ref: MEDIA.asakusa.reference },
-  { at:0.90, pos:[0.4, 2.4, -138],  look:[0, 4, -152],   district:'Asakusa',
+  { at:0.885, pos:[0.4, 2.6, -138],  look:[0, 5, -158],  district:'Asakusa',
     idx:'11', title:'Lanterns <em>instead of screens.</em>',
     body:'Two thousand red lanterns on a single gate, and not one of them is trying to sell you anything. This is the part of Tokyo that predates all of it.' },
-  { at:1.00, pos:[0, 11, -150],     look:[0, 16, -196],  district:'Rooftop',
-    idx:'12', title:'Above it, <em>the city keeps moving.</em>',
+  { at:0.945, pos:[2, 3.0, -150],    look:[-6, 6, -186],  district:'Odaiba',
+    idx:'12', title:'And then <em>the city lets you go.</em>',
+    body:'Past Asakusa the walls stop. Tokyo Bay opens out, the Rainbow Bridge comes back toward you, and the skyline you have been walking through for an hour is suddenly in front of you instead of around you.',
+    ref: MEDIA.shibuya.reference },
+  { at:1.00, pos:[0, 12, -176],      look:[0, 8, -232],   district:'Rooftop',
+    idx:'13', title:'Above it, <em>the city keeps moving.</em>',
     body:'You made it. From up here the rain stops falling on you. Below, a train runs near empty, a shop pulls its shutter, and another night begins without ceremony.' }
 ]
 
@@ -3810,7 +4016,7 @@ window.addEventListener('pointerdown', e => {
  * poles with their overhead wires that narrow Tokyo streets are known for.
  * Repeated elements are instanced.
  * ================================================================= */
-const STREET = { zTop: 10, zBot: -152, half: 5.0, walk: 1.6 }
+const STREET = { zTop: 10, zBot: -180, half: 5.0, walk: 1.6 }
 let roadMat = null
 
 function buildStreet(){
@@ -4529,7 +4735,7 @@ heroEl.classList.remove('ready')
 
 /* ------------------------------ sound ----------------------------- */
 
-let soundOn = false, audioCtx = null, masterGain = null, rainGain = null, cityGain = null, humFilter = null
+let soundOn = false, audioCtx = null, masterGain = null, rainGain = null, cityGain = null, humFilter = null, bayGain = null, bayFilter = null
 function initAudio(){
   if (audioCtx) return
   const AC = window.AudioContext || window.webkitAudioContext
@@ -4572,6 +4778,19 @@ function initAudio(){
   const sg = audioCtx.createGain(); sg.gain.value = 0.018
   sub.connect(sg); sg.connect(masterGain)
   sub.start()
+
+  /* the bay bed: slow-moving filtered noise. Water, wind and open air —
+     only heard once the journey reaches Odaiba. */
+  const bay = audioCtx.createBufferSource()
+  bay.buffer = mk(true); bay.loop = true
+  const bf = audioCtx.createBiquadFilter()
+  bf.type = 'bandpass'; bf.frequency.value = 320; bf.Q.value = 0.4
+  const bg = audioCtx.createGain(); bg.gain.value = 0
+  bay.connect(bf); bf.connect(bg); bg.connect(masterGain)
+  bay.start()
+  bayGain = bg
+  bayFilter = bf
+
   updateAudio()
 }
 /* Layered ambience: CITY + DISTRICT (crowd) + WEATHER (rain) + TIME.
@@ -4585,12 +4804,20 @@ function updateAudio(){
   const nightK = cur.light < 0.62 ? 1.12 : 0.92
   cityGain.gain.setTargetAtTime(0.11 * (0.45 + cur.pedDensity * 0.35) * nightK, t, 0.8)
   /* each district sounds like itself: temple streets muffled, markets
-     bright, neon districts buzzier */
+     bright, neon districts buzzier — and Odaiba opens out into water
+     and wind instead of street */
   if (humFilter){
     const dk = (atmosphere.state.district || '').toLowerCase()
-    const target = /asakusa/.test(dk) ? 120 : /tsukiji/.test(dk) ? 230 : /akihabara/.test(dk) ? 260
-      : /shibuya/.test(dk) ? 200 : /nakameguro/.test(dk) ? 140 : 170
+    const target = /odaiba/.test(dk) ? 90 : /asakusa/.test(dk) ? 120 : /tsukiji/.test(dk) ? 230
+      : /akihabara/.test(dk) ? 260 : /shibuya/.test(dk) ? 200 : /nakameguro/.test(dk) ? 140 : 170
     humFilter.frequency.setTargetAtTime(target, t, 1.2)
+  }
+  /* the bay bed: water and wind, only audible once you have arrived */
+  if (bayGain && bayFilter){
+    const dk = (atmosphere.state.district || '').toLowerCase()
+    const near = /odaiba/.test(dk) ? 1 : 0
+    bayGain.gain.setTargetAtTime(0.055 * near * (1 + cur.rain * 1.2), t, 1.6)
+    bayFilter.frequency.setTargetAtTime(320 + cur.rain * 700, t, 1.4)
   }
 }
 function blip(){
@@ -4835,6 +5062,21 @@ function updateWorld(dt, t, doRender = true){
 
   const atm = atmosphere.state.cur
   const timeIsNight = atm.light < 0.62
+  /* the bay answers the weather: it lifts and darkens in rain, and takes
+     the promenade lighting as a reflection once it is night */
+  if (bayWater){
+    const chop = 0.5 + clamp(atm.wet, 0, 1) * 1.8
+    bayWater.position.y = -0.6 + Math.sin(t * 0.7) * 0.10 * chop
+    bayWater.rotation.z = Math.sin(t * 0.31) * 0.004 * chop
+    const night = timeIsNight ? 1 : 0
+    const rainK = clamp(atm.rain, 0, 1)
+    const snowK = clamp(atm.snow, 0, 1)
+    bayWaterMat.color.setRGB(
+      0.04 + night * 0.03 + rainK * 0.02,
+      0.08 + night * 0.04 + rainK * 0.02,
+      0.12 + night * 0.07 + rainK * 0.03 + snowK * 0.05)
+  }
+
   /* --- the train event ----------------------------------------------------
      The consist moves, decelerates into the platform, opens its doors,
      departs and wraps. Audio and the door glow follow the same state. */
@@ -5293,6 +5535,13 @@ if (import.meta.env && import.meta.env.DEV){
     buildings: bldgGroups, ARCHETYPES, DISTRICT_PROFILES, buildingMats,
     charMats, renderer,
     train, signals, trackway, setSignal, VEHICLE_TYPES, platformPeople, railMats,
+    districtAtZ,
+    bay: {
+      water: !!bayWater, waterZ: BAY_Z,
+      bridge: { towers: 2, deckLength: 190 },
+      farSkyline: 116, promenade: 150, crowd: bayCrowd.length,
+      group: bayGroup
+    },
     /* world-space bounding box of an object, for silhouette assertions */
     bbox(o){
       const b = new THREE.Box3().setFromObject(o)

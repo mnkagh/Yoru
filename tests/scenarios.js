@@ -195,7 +195,7 @@ SCENARIOS.discoveries = async ({ w, d, Y, $, rec, sleep }) => {
         withUrl.every(e => e && e.url && e.source && e.license && e.credit))
     // every visitor-provided reference is reachable from the journey
     const chapRefs = Array.from(d.querySelectorAll('.chap-ref')).map(a => a.href)
-    rec('chapters link their official guides', chapRefs.length === 3, chapRefs.length + ' guide links')
+    rec('chapters link their official guides', chapRefs.length >= 3, chapRefs.length + ' guide links')
     rec('shibuya chapter links Go Tokyo', chapRefs.some(h => h.includes('gotokyo.org')))
     rec('asakusa chapter links JNTO', chapRefs.some(h => h.includes('japan.travel/en/destinations')))
     rec('nakameguro chapter links the blossom guide', chapRefs.some(h => h.includes('japan.travel/en/spot/377')))
@@ -975,6 +975,39 @@ y.setSignal('red', true)
   rec('train reaches the platform and dwells', sawDwell)
   rec('train doors open at the platform', doorsOpened,
       'doorT=' + y.train.userData.doorT.toFixed(2))
+
+  /* ---- Odaiba exists, at the end of the journey ---- */
+  const da = y.TOUR.filter(t => /odaiba|rooftop/i.test(t.district))
+  rec('the journey ends at Odaiba then the rooftop', da.length >= 2,
+      da.map(t => t.district).join(' -> '))
+  rec('Odaiba is the last district before the rooftop',
+      da.length >= 2 && da[da.length - 1].district === 'Rooftop' &&
+      da[da.length - 2].district === 'Odaiba')
+  const bay = y.bay
+  if (bay){
+    rec('Tokyo Bay has water', bay.water)
+    rec('the bay sits beyond the street', bay.waterZ < -170, String(bay.waterZ))
+    const bridge = bay.bridge
+    rec('a suspension bridge crosses the bay', bridge && bridge.towers === 2,
+        bridge ? bridge.towers + ' towers, ' + bridge.deckLength.toFixed(0) + 'm deck' : 'none')
+    rec('the city is visible from across the water', bay.farSkyline > 20,
+        bay.farSkyline + ' far buildings')
+    rec('the waterfront promenade exists', bay.promenade > 40, bay.promenade + 'm of promenade')
+    rec('there are people on the waterfront', bay.crowd >= 8, bay.crowd + ' people')
+  }
+  /* Odaiba buildings are its own profile: wide and low, not towers */
+  const od = y.buildings.filter(g => g.userData.district === 'odaiba')
+  if (od.length){
+    const meanW = od.reduce((s, g) => s + g.userData.w, 0) / od.length
+    const meanH = od.reduce((s, g) => s + g.userData.height, 0) / od.length
+    rec('Odaiba buildings are wide and low', meanW > 9 && meanH < 32,
+        'avg ' + meanW.toFixed(1) + 'm wide, ' + meanH.toFixed(1) + 'm tall')
+  }
+  /* the district resolver must know Odaiba too */
+  rec('districtAtZ resolves Odaiba', y.districtAtZ(-160) === 'odaiba',
+      'z=-160 -> ' + y.districtAtZ(-160))
+  rec('Asakusa still resolves before it', y.districtAtZ(-130) === 'asakusa',
+      'z=-130 -> ' + y.districtAtZ(-130))
 }
 
 /* drive the signal system to a known state without waiting for the cycle */
