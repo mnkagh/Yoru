@@ -3,6 +3,7 @@ import maplibregl from 'maplibre-gl'
 import { createAtmosphere } from './atmosphere.js'
 import { MEDIA } from './media.js'
 import { DISTRICTS, resolveWorld, districtForTour, conciergeRecommend } from './data/tokyoWorld.js'
+import { makeBuildingMaterials, buildBuilding, ARCHETYPES, DISTRICT_PROFILES } from './buildings.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -203,33 +204,26 @@ function facadeMatsFor(z){
   return facadeCache[set]
 }
 
+/* Buildings are real modular architecture now: assembled from base, facade
+   bays, ground-floor shopfront, detail and roof modules, then merged per
+   material so a 40-part building still costs one draw call per material.
+   The eight archetypes and their district weighting live in buildings.js. */
 const buildingGeo = new THREE.BoxGeometry(1,1,1)
+const buildingMats = makeBuildingMaterials()
+/* the snow/facade wash must also reach the new structural materials */
+allBuildingMats.push(buildingMats.concrete, buildingMats.concreteLt,
+  buildingMats.plaster, buildingMats.tile, buildingMats.metal,
+  buildingMats.timber, buildingMats.glassDark, buildingMats.glassLit,
+  buildingMats.glassCool, buildingMats.roofTile, buildingMats.plant,
+  buildingMats.signBoard, buildingMats.cloth)
+const bldgGroups = []
+let bldgSeed = 20260106
 function addBuilding(x, z, w, h, d, mat){
+  /* legacy far-skyline path: a plain slab is correct at that distance and
+     keeps the draw count down. Kept for the background ring only. */
   const m = new THREE.Mesh(buildingGeo, mat)
   m.scale.set(w, h, d)
   m.position.set(x, h/2, z)
-  /* silhouette: a traditional hip roof, a tower antenna, a water tank,
-     or a setback penthouse — the district is read above the street too */
-  const dist = districtAtZ(z)
-  if (dist === 'asakusa'){
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w,d)*0.72, 1.6, 4), new THREE.MeshBasicMaterial({ color: 0x2a1c14 }))
-    roof.rotation.y = Math.PI/4
-    roof.position.set(x, h + 0.8, z)
-    city.add(roof)
-  } else if ((dist === 'shinjuku' || dist === 'akihabara' || dist === 'roppongi') && h > 20){
-    const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 3.4, 5), new THREE.MeshBasicMaterial({ color: 0x1a1e26 }))
-    ant.position.set(x, h + 1.7, z)
-    city.add(ant)
-  } else if (dist === 'ginza'){
-    const pent = new THREE.Mesh(buildingGeo, mat)
-    pent.scale.set(w*0.55, 2.4, d*0.6)
-    pent.position.set(x, h + 1.2, z)
-    city.add(pent)
-  } else if (dist === 'nakameguro' || dist === 'tsukiji'){
-    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1.1, 10), new THREE.MeshBasicMaterial({ color: 0x23262e }))
-    tank.position.set(x, h + 0.55, z)
-    city.add(tank)
-  }
   city.add(m)
   return m
 }
@@ -262,23 +256,29 @@ const DIST_ENV = {
   akihabara:    { hMin:12, hMax:26, wMin:3.5, wMax:6.0, xBase:11 },
   asakusa:      { hMin:4,  hMax:10, wMin:3.0, wMax:6.0, xBase:11 }
 }
-for(let z = 8; z > -150; z -= 5 + Math.random()*4){
-  const env = DIST_ENV[districtAtZ(z)] || DIST_ENV.shinjuku
+/* --- the street frontage ----------------------------------------------
+   Real modular buildings, placed along both kerbs. Every building's
+   archetype comes from its district profile, so Asakusa is built from
+   traditional lowrises and Shinjuku from towers. */
+for(let z = 8; z > -152; z -= 6.4){
+  const dist = districtAtZ(z)
+  const env = DIST_ENV[dist] || DIST_ENV.shinjuku
   const alley = (z < -60 && z > -84)
   const plaza = (z < -40 && z > -60)
   const arcade = (z < -84 && z > -104)
-  if(plaza && Math.random() < 0.7) continue
+  if(plaza && ((z + 152) % 3 < 1)) continue
   for(const side of [-1, 1]){
-    if(Math.random() < 0.12) continue
+    const seed = (bldgSeed += 7919)
+    const r = (seed * 2654435761 % 1000) / 1000
+    if(r < 0.14) continue
+    const prof = DISTRICT_PROFILES[dist]
+    /* the gap between kerb and facade follows the district street width */
     const xBase = plaza ? 16 : (alley ? 6.2 : env.xBase)
-    const w = env.wMin + Math.random()*(env.wMax - env.wMin)
-    const h = arcade ? 10+Math.random()*16 : env.hMin + Math.random()*(env.hMax - env.hMin)
-    const d = 4 + Math.random()*3
-    const x = side * (xBase + w/2 + Math.random()*2)
-    const mats = facadeMatsFor(z)
-    const mat = mats[Math.floor(Math.random()*mats.length)]
-    addBuilding(x, z, w, h, d, mat)
-    if(z < -140 || z > 8){}
+    const b = buildBuilding({
+      x: side * xBase, z, dir: -side, district: dist, seed,
+      materials: buildingMats, parent: city, profile: prof
+    })
+    bldgGroups.push(b.group)
   }
 }
 for(let i=0;i<70;i++){
@@ -5038,6 +5038,7 @@ if (import.meta.env && import.meta.env.DEV){
     get map(){ return map }, get mapLoading(){ return mapLoading },
     rain, streaks, streakMat, peds, cat, get rainLevel(){ return state.rainLevel || 1 },
     get fireworks(){ return state.fireworks }, get fwBursts(){ return fwBursts },
+    buildings: bldgGroups, ARCHETYPES, DISTRICT_PROFILES, buildingMats,
     /* deterministic test pump: advance the exact per-frame logic without rAF */
     tick(dt, t){ updateWorld(dt == null ? 1/60 : dt, t == null ? tGlobal + 1/60 : t, false) }
   }
