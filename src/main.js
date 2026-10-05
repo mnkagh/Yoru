@@ -97,14 +97,21 @@ function canvasTex(w, h, draw){
   return { tex, cv, ctx: cv.getContext('2d') }
 }
 
-function windowTexture(w, h, lit, warm){
+function windowTexture(w, h, lit, warm, accent, wood){
   return canvasTex(w, h, (ctx)=>{
-    ctx.fillStyle = '#0a0d15'; ctx.fillRect(0,0,w,h)
+    ctx.fillStyle = wood ? '#1c120c' : '#0a0d15'; ctx.fillRect(0,0,w,h)
+    if (wood){
+      /* horizontal timber slats give traditional districts a different
+         facade rhythm than modern glass offices */
+      ctx.strokeStyle = 'rgba(58,38,26,0.85)'; ctx.lineWidth = 1.6
+      for (let y = 3; y < h; y += 7){ ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke() }
+    }
     const cols = 6, rows = Math.round(h/w*cols*1.6)
     const cw = w/cols, rh = h/rows
     for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
       if(Math.random() < lit){
-        ctx.fillStyle = Math.random()<0.12 ? '#7fd4ff' : (Math.random()<0.5 ? warm : '#ffd9a0')
+        const roll = Math.random()
+        ctx.fillStyle = roll < 0.1 && accent ? accent : (roll < 0.4 ? warm : '#ffd9a0')
         ctx.globalAlpha = 0.35 + Math.random()*0.6
         ctx.fillRect(x*cw+cw*0.22, y*rh+rh*0.28, cw*0.56, rh*0.44)
       }
@@ -147,14 +154,51 @@ asphalt.rotation.x = -Math.PI/2
 asphalt.position.set(0, 0.01, -90)
 city.add(asphalt)
 
-const bTexA = windowTexture(64, 128, 0.34, '#ffb36b')
-const bTexB = windowTexture(64, 128, 0.22, '#9db8ff')
-const bTexC = windowTexture(64, 128, 0.45, '#ffd9a0')
+/* snow cover: a cool translucent sheet over the street, visible only in snow */
+const snowSheet = new THREE.Mesh(
+  new THREE.PlaneGeometry(22, 260),
+  new THREE.MeshBasicMaterial({ color: 0xdfe8f2, transparent: true, opacity: 0, depthWrite: false })
+)
+snowSheet.rotation.x = -Math.PI/2
+snowSheet.position.set(0, 0.035, -90)
+city.add(snowSheet)
+
+/* Facade archetypes: each district gets its own window language, so the
+   architecture reads differently long before anyone reads a label.
+   This is the first lever of the visual-bible building dressing. */
 const bMats = [
-  new THREE.MeshBasicMaterial({ map: bTexA }),
-  new THREE.MeshBasicMaterial({ map: bTexB }),
-  new THREE.MeshBasicMaterial({ map: bTexC })
+  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.34,'#ffb36b',null,false) }),
+  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.22,'#9db8ff',null,false) }),
+  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.45,'#ffd9a0',null,false) })
 ]
+const FACADES = {
+  office:  [windowTexture(64,128,0.30,'#9db8ff',null,false), windowTexture(64,128,0.22,'#b8c8ff',null,false)],
+  warm:    [windowTexture(64,128,0.30,'#ffb36b',null,false), windowTexture(64,128,0.20,'#ffc98a',null,false)],
+  luxe:    [windowTexture(64,128,0.24,'#e8dcc0',null,false), windowTexture(64,128,0.16,'#f0e8d8',null,false)],
+  neon:    [windowTexture(64,128,0.30,'#ffd9a0','#ff2e88',false), windowTexture(64,128,0.22,'#ffd9a0','#7fd4ff',false)],
+  electric:[windowTexture(64,128,0.32,'#7fd4ff','#ff2e88',false), windowTexture(64,128,0.24,'#9adfff','#ffe95a',false)],
+  market:  [windowTexture(64,128,0.30,'#7fd4ff','#ffb36b',false), windowTexture(64,128,0.20,'#bfe8ff',null,false)],
+  traditional:[windowTexture(64,128,0.18,'#ffca8a',null,true), windowTexture(64,128,0.12,'#ffb36b',null,true)],
+  residential:[windowTexture(64,128,0.26,'#ffc98a',null,false), windowTexture(64,128,0.18,'#ffb36b',null,false)]
+}
+const DISTRICT_FACADE = {
+  shinjuku: 'office', nishishinjuku: 'warm', harajuku: 'neon', shibuya: 'neon',
+  nakameguro: 'residential', roppongi: 'luxe', ginza: 'luxe', tsukiji: 'market',
+  akihabara: 'electric', asakusa: 'traditional'
+}
+const allBuildingMats = [...bMats]
+const facadeCache = {}
+function facadeMatsFor(z){
+  const set = DISTRICT_FACADE[districtAtZ(z)] || 'office'
+  if (!facadeCache[set]){
+    facadeCache[set] = FACADES[set].map(t => {
+      const m = new THREE.MeshBasicMaterial({ map: t })
+      allBuildingMats.push(m)
+      return m
+    })
+  }
+  return facadeCache[set]
+}
 
 const buildingGeo = new THREE.BoxGeometry(1,1,1)
 function addBuilding(x, z, w, h, d, mat){
@@ -206,7 +250,8 @@ for(let z = 8; z > -150; z -= 5 + Math.random()*4){
     const h = arcade ? 10+Math.random()*16 : env.hMin + Math.random()*(env.hMax - env.hMin)
     const d = 4 + Math.random()*3
     const x = side * (xBase + w/2 + Math.random()*2)
-    const mat = bMats[Math.floor(Math.random()*3)]
+    const mats = facadeMatsFor(z)
+    const mat = mats[Math.floor(Math.random()*mats.length)]
     addBuilding(x, z, w, h, d, mat)
     if(z < -140 || z > 8){}
   }
@@ -4124,7 +4169,7 @@ heroEl.classList.remove('ready')
 
 /* ------------------------------ sound ----------------------------- */
 
-let soundOn = false, audioCtx = null, masterGain = null, rainGain = null, cityGain = null
+let soundOn = false, audioCtx = null, masterGain = null, rainGain = null, cityGain = null, humFilter = null
 function initAudio(){
   if (audioCtx) return
   const AC = window.AudioContext || window.webkitAudioContext
@@ -4160,6 +4205,7 @@ function initAudio(){
   hum.connect(hf); hf.connect(hg); hg.connect(masterGain)
   hum.start()
   cityGain = hg
+  humFilter = hf
 
   const sub = audioCtx.createOscillator()
   sub.type = 'sine'; sub.frequency.value = 47
@@ -4178,6 +4224,14 @@ function updateAudio(){
   rainGain.gain.setTargetAtTime(0.055 * cur.rain, t, 0.8)
   const nightK = cur.light < 0.62 ? 1.12 : 0.92
   cityGain.gain.setTargetAtTime(0.11 * (0.45 + cur.pedDensity * 0.35) * nightK, t, 0.8)
+  /* each district sounds like itself: temple streets muffled, markets
+     bright, neon districts buzzier */
+  if (humFilter){
+    const dk = (atmosphere.state.district || '').toLowerCase()
+    const target = /asakusa/.test(dk) ? 120 : /tsukiji/.test(dk) ? 230 : /akihabara/.test(dk) ? 260
+      : /shibuya/.test(dk) ? 200 : /nakameguro/.test(dk) ? 140 : 170
+    humFilter.frequency.setTargetAtTime(target, t, 1.2)
+  }
 }
 function blip(){
   if (!audioCtx || !soundOn) return
@@ -4556,7 +4610,13 @@ function updateWorld(dt, t, doRender = true){
   bMatR = lerp(bMatR, timeIsNight ? 1 : 0.72, 0.05)
   bMatG = lerp(bMatG, timeIsNight ? 0.86 : 0.76, 0.05)
   bMatB = lerp(bMatB, timeIsNight ? 0.68 + winK * 0.1 : 0.84, 0.05)
-  bMats.forEach(m => m.color.setRGB(bMatR * warmK * 0.62, bMatG * warmK * 0.62, bMatB * warmK * 0.62))
+  /* snow lands on the walls too: cool-white wash over the facade */
+  const snowK = clamp(atm.snow, 0, 1) * 0.55
+  allBuildingMats.forEach(m => m.color.setRGB(
+    bMatR * warmK * 0.62 * (1 - snowK) + 0.82 * snowK,
+    bMatG * warmK * 0.62 * (1 - snowK) + 0.86 * snowK,
+    bMatB * warmK * 0.62 * (1 - snowK) + 0.92 * snowK
+  ))
 
   /* landmarks are silhouettes: they darken with the light so a noon
      tower does not glow at midnight. Skytree keeps aviation beacons. */
@@ -4567,7 +4627,9 @@ function updateWorld(dt, t, doRender = true){
   })
   if (riverMat) riverMat.color.setRGB(0.05 + atm.light * 0.04, 0.08 + atm.light * 0.05, 0.12 + atm.light * 0.07)
 
-  /* wet ground: puddles deepen and the road picks up a sheen */
+  /* wet ground: puddles deepen and the road picks up a sheen; snow sheets it */
+  snowSheet.material.opacity = lerp(snowSheet.material.opacity, atm.snow * 0.42, 0.05)
+  snowSheet.visible = atm.snow > 0.04
   puddles.forEach(p => {
     const want = 0.05 + atm.wet * 0.5
     p.material.opacity = lerp(p.material.opacity, want, 0.05)
