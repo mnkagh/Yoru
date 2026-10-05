@@ -3800,6 +3800,35 @@ buildStreet()
   roofs.count = ri
   roofs.instanceMatrix.needsUpdate = true
   city.add(roofs)
+
+  /* ground-floor storefront band: district colour wrapping every block */
+  const bandGeo = new THREE.BoxGeometry(0.5, 2.6, 4.2)
+  const bandMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
+  const bands = new THREE.InstancedMesh(bandGeo, bandMat, 90)
+  let gi = 0
+  const bandCol = (z) => {
+    const d = districtAtZ(z)
+    return d === 'asakusa' ? 0x8c3a2e : d === 'tsukiji' ? 0x2f6f6a : d === 'ginza' ? 0x9a948a
+      : d === 'shibuya' ? 0xb03a68 : d === 'akihabara' ? 0x2f7fd4 : d === 'nakameguro' ? 0x4a6a4a
+      : d === 'harajuku' ? 0xc96a9a : d === 'roppongi' ? 0x3a3f4a : 0x333a44
+  }
+  for (let z = 4; z > -148 && gi < 88; z -= 4.2){
+    for (const side of [-1, 1]){
+      if (Math.random() < 0.35 || gi >= 88) continue
+      const env = DIST_ENV[districtAtZ(z)] || DIST_ENV.shinjuku
+      dummyA.position.set(side * (env.xBase + 0.2), 1.3, z + (Math.random() - 0.5) * 2)
+      dummyA.rotation.set(0, 0, 0)
+      dummyA.scale.set(1, 1, 1)
+      dummyA.updateMatrix()
+      bands.setMatrixAt(gi, dummyA.matrix)
+      bands.setColorAt(gi, colTmp.setHex(bandCol(z)))
+      gi++
+    }
+  }
+  bands.count = gi
+  bands.instanceMatrix.needsUpdate = true
+  if (bands.instanceColor) bands.instanceColor.needsUpdate = true
+  city.add(bands)
 }
 
 /* air-conditioning units and balconies on the facades, instanced: the
