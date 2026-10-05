@@ -376,6 +376,26 @@ for(let z = 4; z > -148; z -= 3.5 + Math.random()*3){
 
 const lanterns = []
 const lanternGeo = new THREE.SphereGeometry(0.13, 10, 10)
+/* a single unmistakable konbini — bright facade, big window, 24H sign */
+const konbini = new THREE.Group()
+{
+  const shell = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.9, 2.4), new THREE.MeshBasicMaterial({ color: 0x1c2836 }))
+  shell.position.y = 1.45
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 1.7), new THREE.MeshBasicMaterial({ color: 0xfff2cc }))
+  glass.position.set(0, 1.35, 1.21)
+  const signTex = neonTexture('24H', '#00d4c8', 128, 48, 34)
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.55), new THREE.MeshBasicMaterial({ map: signTex, transparent: true }))
+  sign.position.set(0, 2.6, 1.22)
+  konbini.add(shell, glass, sign)
+  konbini.position.set(-9.6, 0, -49)
+  konbini.rotation.y = Math.PI/2 * 0.06
+  konbini.userData = { type:'konbini' }
+  city.add(konbini)
+  const kHit = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3, 2.6), new THREE.MeshBasicMaterial({ visible:false }))
+  kHit.position.copy(konbini.position); kHit.position.y = 1.5
+  kHit.userData = { type:'konbini', ref: konbini }
+  city.add(kHit)
+}
 for(let i=0;i<10;i++){
   const z = -63 - i*2.1
   const x = (i%2===0?-1:1) * (2.2+Math.random()*1.2)
@@ -3486,6 +3506,8 @@ window.addEventListener('pointermove', e => {
       setCursor('wide', 'LOOK')
     } else if (type === 'claw'){
       setCursor('wide', 'PLAY')
+    } else if (type === 'konbini'){
+      setCursor('wide', 'KONBINI')
     } else if (type === 'shrine'){
       setCursor('wide', "WHAT'S THIS?")
     } else {
@@ -3524,6 +3546,10 @@ window.addEventListener('pointerdown', e => {
   if (type === 'person'){ openDialogue(root.userData.id); return }
   if (type === 'shrine'){ showShrineDiscovery(root.userData.shrine); return }
 
+  if (type === 'konbini'){
+    showMoment('KONBINI', 'KONBINI', '24 hours, always lit.')
+    return
+  }
   if (type === 'cat'){
     /* the cat looks at you, then walks off (§41) */
     if (!cat.userData.running){
@@ -3691,6 +3717,87 @@ function buildStreet(){
   }
 }
 buildStreet()
+
+/* Japanese street kit: tactile paving along both kerbs, manholes down
+   the carriageway, storm drains at the gutter line — cheap, permanent,
+   instantly "Japan". */
+{
+  const tactileMat = new THREE.MeshBasicMaterial({ color: 0x6b5f26 })
+  for (const sx of [-4.9, 4.9]){
+    const t = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 250), tactileMat)
+    t.position.set(sx, 0.022, -90)
+    city.add(t)
+  }
+  const drainMat = new THREE.MeshBasicMaterial({ color: 0x0c1016 })
+  for (const sx of [-8.7, 8.7]){
+    const dd = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 250), drainMat)
+    dd.position.set(sx, 0.018, -90)
+    city.add(dd)
+  }
+  const manGeo = new THREE.CircleGeometry(0.55, 18)
+  const manMat = new THREE.MeshBasicMaterial({ color: 0x11141c })
+  const mans = new THREE.InstancedMesh(manGeo, manMat, 26)
+  const dummyM = new THREE.Object3D()
+  for (let i = 0; i < 26; i++){
+    dummyM.position.set((Math.random() - 0.5) * 10, 0.02, 6 - i * 9.4 - Math.random() * 4)
+    dummyM.rotation.set(-Math.PI/2, 0, 0)
+    dummyM.updateMatrix()
+    mans.setMatrixAt(i, dummyM.matrix)
+  }
+  mans.instanceMatrix.needsUpdate = true
+  city.add(mans)
+}
+
+/* storefront awnings + rooftop clutter, district-tinted, instanced */
+{
+  const awnGeo = new THREE.BoxGeometry(1.2, 0.1, 3.2)
+  const awnMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
+  const awnings = new THREE.InstancedMesh(awnGeo, awnMat, 90)
+  const awnCol = (z) => {
+    const d = districtAtZ(z)
+    return d === 'asakusa' ? 0x6e2f24 : d === 'tsukiji' ? 0x245552 : d === 'ginza' ? 0x8a8478
+      : d === 'shibuya' ? 0x8a2f52 : d === 'akihabara' ? 0x245a9a : d === 'nakameguro' ? 0x2f4a2f
+      : d === 'harajuku' ? 0x9a4f78 : 0x2a2f3a
+  }
+  const dummyA = new THREE.Object3D()
+  let ai = 0
+  const colTmp = new THREE.Color()
+  for (let z = 4; z > -148 && ai < 88; z -= 4.2){
+    for (const side of [-1, 1]){
+      if (Math.random() < 0.45 || ai >= 88) continue
+      const env = DIST_ENV[districtAtZ(z)] || DIST_ENV.shinjuku
+      dummyA.position.set(side * (env.xBase - 0.2), 2.35, z + (Math.random() - 0.5) * 2)
+      dummyA.rotation.set(0, 0, 0)
+      dummyA.updateMatrix()
+      awnings.setMatrixAt(ai, dummyA.matrix)
+      awnings.setColorAt(ai, colTmp.setHex(awnCol(z)))
+      ai++
+    }
+  }
+  awnings.count = ai
+  awnings.instanceMatrix.needsUpdate = true
+  if (awnings.instanceColor) awnings.instanceColor.needsUpdate = true
+  city.add(awnings)
+
+  const roofGeo = new THREE.BoxGeometry(1.4, 0.7, 1.4)
+  const roofMat = new THREE.MeshBasicMaterial({ color: 0x1a1d24 })
+  const roofs = new THREE.InstancedMesh(roofGeo, roofMat, 60)
+  let ri = 0
+  for (let z = 4; z > -148 && ri < 58; z -= 6){
+    for (const side of [-1, 1]){
+      if (Math.random() < 0.5 || ri >= 58) continue
+      const env = DIST_ENV[districtAtZ(z)] || DIST_ENV.shinjuku
+      const h = env.hMin + (env.hMax - env.hMin) * (0.35 + Math.random() * 0.6)
+      dummyA.position.set(side * (env.xBase + 2 + Math.random() * 2), h + 0.35, z)
+      dummyA.rotation.set(0, 0, 0)
+      dummyA.updateMatrix()
+      roofs.setMatrixAt(ri++, dummyA.matrix)
+    }
+  }
+  roofs.count = ri
+  roofs.instanceMatrix.needsUpdate = true
+  city.add(roofs)
+}
 
 /* air-conditioning units and balconies on the facades, instanced: the
    clutter that actually reads as a Japanese building rather than a box */
@@ -3884,6 +3991,12 @@ function showShrineDiscovery(id){
       context:'Japan keeps over four million vending machines: hot coffee in winter, cold tea in summer, umbrellas and batteries in between. They run all night, unguarded, everywhere.',
       culture:'The machine works because the street is trusted. It is infrastructure the way a lamppost is — nobody thinks about it until it is gone.',
       etiquette:'Drink beside the machine and drop the can in its own recycling bin. The bin belongs to that machine; carry your rubbish otherwise.',
+      nearby:'' },
+    KONBINI: { cat:'Convenience store',
+      sub:'The konbini: Japan\'s all-night living room.',
+      context:'Konbini (7-Eleven, FamilyMart, Lawson) are open 24 hours, sell hot food and ATMs, collect parcels and print tickets. They follow families from late trains home.',
+      culture:'At night their warm glow is the visual landmark of every side street. Onsen-style lit windows, a delivery van, a bicycle rack — the konbini is a district in one storefront.',
+      etiquette:'You may eat standing inside at high tables; do not eat on the floor. Most accept IC cards. Rubbish goes in the bins by the entrance.',
       nearby:'' }
   }
   function showMoment(kind, title, body){
