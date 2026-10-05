@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import maplibregl from 'maplibre-gl'
 import { createAtmosphere } from './atmosphere.js'
 import { MEDIA } from './media.js'
+import { DISTRICTS, resolveWorld, districtForTour, conciergeRecommend } from './data/tokyoWorld.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -1848,9 +1849,26 @@ function conLine(who, txt, cls){
   CON_LOG.scrollTop = CON_LOG.scrollHeight
 }
 
-function conAnswer(q){
-  const s = q.toLowerCase()
-  const has = arr => arr.some(k => s.includes(k))
+  function conAnswer(q){
+    const s = q.toLowerCase()
+    /* Rei reads the world first: district, time, weather, journal.
+       The recommendations therefore change as the journey changes,
+       and a question about rain while it rains answers indoors. */
+    const worldCtx = conciergeRecommend({
+      district: atmosphere.state.district,
+      time: atmosphere.state.time,
+      weather: atmosphere.state.weather,
+      question: q,
+      saved: Object.keys(disc.places).map(k => disc.places[k]).slice(0, 3),
+      visited: Object.keys(disc.passport)
+    })
+    if (worldCtx.length){
+      const recs = worldCtx.map((r, i) =>
+        '<b>' + String(i + 1).padStart(2, '0') + '. ' + r.title + '.</b> ' + r.why).join('<br>· ')
+      return 'You are in ' + (districtForTour(atmosphere.state.district).name || 'Tokyo') +
+        ', ' + atmosphere.label().toLowerCase() + '.<br>· ' + recs
+    }
+    const has = arr => arr.some(k => s.includes(k))
   if (has(['quiet','calm','peace','relax','slow'])){
     return 'We would put you in Kagurazaka — stone lanes, old wood, and a counter with six seats and no sign. I will send the address on the day.'
   }
@@ -3846,6 +3864,35 @@ const atmosphere = createAtmosphere({
 /* food follows the journey: reorder the rail when the district changes */
 atmosphere.onChange(() => { try { refreshDishDistrict() } catch (e){} try { updateAudio() } catch (e){} })
 
+/* District asset dressing: when the district changes, the storefront
+   signs re-skin to that district's vocabulary. The geometry is pooled;
+   only the textures are re-baked. */
+let dressedDistrict = null
+atmosphere.onChange((time, weather, district) => {
+  dressDistrict(district, time, weather)
+})
+function dressDistrict(districtId, time, weather){
+  if (districtId === dressedDistrict) return
+  dressedDistrict = districtId
+  const d = districtForTour(districtId) || DISTRICTS.shinjuku
+  if (!d.signs || !d.signs.length) return
+  signs.forEach((m, i) => {
+    const def = d.signs[i % d.signs.length]
+    const old = m.material.map
+    const oldR = m.userData.refl ? m.userData.refl.material.map : null
+    const tex = neonTexture(def[0], def[1], 256, 72)
+    m.material.map = tex
+    m.material.needsUpdate = true
+    m.userData.text = def[0]
+    if (old) old.dispose()
+    if (m.userData.refl){
+      m.userData.refl.material.map = tex
+      m.userData.refl.material.needsUpdate = true
+      if (oldR) oldR.dispose()
+    }
+  })
+}
+
 /* --- atmosphere control: two independent axes ---------------------------
    Time of day and weather are chosen separately, so Day+Rain and
    Night+Rain are genuinely different places rather than one tinted filter. */
@@ -4177,7 +4224,7 @@ $('nav-moment').addEventListener('click', () => {
   chime()
   toast('Moment saved')
   try {
-    disc.moments.push({ t: Date.now(), label: atmosphere.label() + ' · ' + districtNow() })
+    disc.moments.push({ t: Date.now(), label: atmosphere.label() + ' · ' + districtNow(), district: districtNow() })
     renderTally(); renderJournal()
   } catch (e){}
 })
@@ -4634,7 +4681,7 @@ if (import.meta.env && import.meta.env.DEV){
     submitUserText, LOCATIONS, PLACES, PEOPLE, DIALOGUE, DISHES, SHRINES, state, TOUR,
     camAt, camAtStatic, applyCamera, camera, showDish, buildDishRail, refreshDishDistrict,
     showShrineDiscovery, closeDiscovery, closeLocation, shrineHits, scene, city,
-    showMoment, MEDIA,
+    showMoment, MEDIA, resolveWorld, districtForTour, DISTRICTS, conciergeRecommend, signs,
     addToItinerary, get itinerary(){ return itinerary },    get reduced(){ return REDUCED }, get camPos(){ return camPos },
     get map(){ return map }, get mapLoading(){ return mapLoading },
     rain, streaks, streakMat, peds, cat, get rainLevel(){ return state.rainLevel || 1 },
@@ -4665,7 +4712,11 @@ if (SHOT){
     })
   }
   state.p = targetP
-  atmosphere.set({ time, weather })
+  let tourCur = TOUR[0]
+  TOUR.forEach(c => { if (targetP >= c.at - 0.001) tourCur = c })
+  const dn = tourCur.district.toLowerCase().replace(/[^a-z]/g, '')
+  const dk = atmosphere.districts().find(d => dn.startsWith(d) || d.startsWith(dn)) || 'shinjuku'
+  atmosphere.set({ time, weather, district: dk })
   applyCamera()
 
   /* Pump the simulation directly. Headless does not reliably pump

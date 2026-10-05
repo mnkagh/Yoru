@@ -6,6 +6,53 @@
 const SCENARIOS = {}
 
 /* ------------------------------------------------------------------ *
+ * DISTRICT DRESSING + CONCIERGE CONTEXT (bible §4/§17)                *
+ * ------------------------------------------------------------------ */
+SCENARIOS.districtProfiles = async ({ w, d, Y, $, rec, sleep }) => {
+  const y = Y()
+  enterSite(d)
+  await sleep(1200)
+
+  // every journey district resolves to a distinct, complete profile
+  const ids = ['shinjuku', 'shibuya', 'harajuku', 'nakameguro', 'roppongi', 'ginza', 'tsukiji', 'akihabara', 'asakusa']
+  const ok = ids.every(id => {
+    const d = y.DISTRICTS[id]
+    return d && d.signs.length && d.vehicles.length && d.npcs.length && d.foods.length && d.recommends && d.recommends.eat
+  })
+  rec('every journey district has a full asset profile', ok)
+
+  rec('resolveWorld merges district + time + weather', (() => {
+    const r = y.resolveWorld('asakusa', 'night', 'rain')
+    return r.district.id === 'asakusa' && r.weather.umbrellas === true && r.time.window === 'night' &&
+           r.signs === y.DISTRICTS.asakusa.signs
+  })())
+
+  // signs on the street re-skin to the district vocabulary
+  y.atmosphere.set({ district: 'asakusa' }, true)
+  for (let i = 0; i < 4; i++) y.tick(1/60, 4000 + i/60)
+  const asak = y.signs.map(m => m.userData.text)
+  rec('street signs speak Asakusa', asak.some(t => /雷門|浅草|抹茶|和菓子|天ぷら|そば/.test(t)), asak.slice(0, 4).join(','))
+  y.atmosphere.set({ district: 'akihabara' }, true)
+  for (let i = 0; i < 4; i++) y.tick(1/60, 5000 + i/60)
+  const akib = y.signs.map(m => m.userData.text)
+  rec('street signs speak Akihabara', akib.some(t => /GAME|PC|電気|マンガ|24H/.test(t)), akib.slice(0, 4).join(','))
+  rec('dressing actually changed the textures', asak.join('|') !== akib.join('|'))
+
+  // concierge is contextual now
+  const rainyShibuya = y.conciergeRecommend({ district: 'shibuya', time: 'night', weather: 'rain', question: "It's raining, where should I eat?" })
+  rec('concierge uses weather: rain in Shibuya answers inside Shibuya',
+      rainyShibuya.some(r => /no rain|covered|indoor/i.test(r.why) || /Shibuya|Shibuya —/.test(r.title + r.why)),
+      rainyShibuya.map(r => r.title).join(' | '))
+  const hungryTsukiji = y.conciergeRecommend({ district: 'tsukiji', time: 'day', weather: 'sunny', question: 'What should I eat?' })
+  rec('concierge uses district: food question in Tsukiji answers market food',
+      hungryTsukiji.some(r => /Tsukiji/i.test(r.title + r.why) && /sushi|seafood|market|tamagoyaki/i.test(r.why)),
+      hungryTsukiji.map(r => r.title + ' -> ' + r.why.slice(0, 60)).join(' | '))
+  const dishQ = y.conciergeRecommend({ district: 'shinjuku', time: 'night', weather: 'sunny', question: 'Where is good ramen?' })
+  rec('concierge finds a district for a named dish', dishQ.some(r => /ramen/i.test(r.title + ' ' + r.why)),
+      dishQ.map(r => r.title).join(' | '))
+}
+
+/* ------------------------------------------------------------------ *
  * RAIN IS VISIBLE, WET IS REAL, UMBRELLAS OPEN                         *
  * ------------------------------------------------------------------ */
 SCENARIOS.rain = async ({ w, d, Y, $, rec, sleep }) => {
