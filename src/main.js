@@ -4,6 +4,10 @@ import { createAtmosphere } from './atmosphere.js'
 import { MEDIA } from './media.js'
 import { DISTRICTS, resolveWorld, districtForTour, conciergeRecommend } from './data/tokyoWorld.js'
 import { makeBuildingMaterials, buildBuilding, ARCHETYPES, DISTRICT_PROFILES } from './buildings.js'
+import {
+  makeCharacterMaterials, buildCharacter, dressCharacterForWeather,
+  animateCharacter, mulberry
+} from './characters.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -636,6 +640,12 @@ const trainHit = new THREE.Mesh(new THREE.BoxGeometry(4, 3.4, 16), new THREE.Mes
 trainHit.userData = { type:'train' }
 city.add(trainHit)
 
+/* --- people ---------------------------------------------------------------
+   Full modular characters (src/characters.js): legs, shoes, torso, arms,
+   hands, neck, head, hair and accessories, merged per material. Population
+   size and gait come from the district profile, so Shinjuku is crowded
+   and fast and Nakameguro is slow and thin. */
+const charMats = makeCharacterMaterials()
 const peds = []
 const pedZones = [
   { x:[-8,8], z:[-44,-57], n: IS_TOUCH?4:7 },
@@ -643,25 +653,29 @@ const pedZones = [
   { x:[-5,5], z:[-86,-101], n: IS_TOUCH?3:5 }
 ]
 function makePed(zone){
-  const g = new THREE.Group()
-  const col = new THREE.Color().setHSL(Math.random(), 0.35, 0.1+Math.random()*0.18)
-  const mat = new THREE.MeshBasicMaterial({ color: col })
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.5, 2, 6), mat)
-  body.position.y = 0.62
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), mat)
-  head.position.y = 1.16
-  g.add(body, head)
-  body.userData = { type:'ped', ref: g }
-  head.userData = { type:'ped', ref: g }
-  g.position.set(zone.x[0]+Math.random()*(zone.x[1]-zone.x[0]), 0, zone.z[0]+Math.random()*(zone.z[1]-zone.z[0]))
-  /* archetype variation: height and build differ, so no two silhouettes match */
-  const ps = 0.9 + Math.random() * 0.2
-  g.scale.set(ps * (0.94 + Math.random() * 0.12), ps, ps)
-  g.userData = { head, zone, dir: Math.random()<0.5?1:-1, speed: 0.35+Math.random()*0.55, lookT: 0, bob: Math.random()*10, type:'ped', bodyMat: mat, baseCol: col.clone() }
-  city.add(g)
+  const g = buildCharacter({
+    seed: (pedSeed += 104729), materials: charMats, parent: city
+  })
+  const r = mulberry(pedSeed)
+  g.position.set(zone.x[0]+r()*(zone.x[1]-zone.x[0]), 0, zone.z[0]+r()*(zone.x[1]-zone.z[0]))
+  g.userData.zone = zone
+  g.userData.dir = r() < 0.5 ? 1 : -1
+  g.userData.speed = 0.35 + r() * 0.55
+  g.userData.gait = 0.85 + r() * 0.4
+  g.userData.lookT = 0
+  g.userData.bob = r() * 10
+  g.userData.type = 'ped'
+  /* flat aliases so the weather systems and tests read one place */
+  const rig = g.userData.rig
+  g.userData.umbrella = rig.umbrella
+  g.userData.bodyMat = g.userData.clothMat
+  g.userData.baseCol = g.userData.clothMat.userData.base || g.userData.clothMat.color.clone()
+  /* every part is clickable, not just the body */
+  g.traverse(o => { if (o.isMesh) o.userData = { type:'ped', ref: g } })
   peds.push(g)
 }
-pedZones.forEach(z=>{ for(let i=0;i<z.n;i++) makePed(z) })
+let pedSeed = 991
+pedZones.forEach(z => { for (let i = 0; i < z.n; i++) makePed(z) })
 
 const cat = new THREE.Group()
 const catMat = new THREE.MeshBasicMaterial({ color: 0x05060a })
@@ -4629,23 +4643,9 @@ const trafficLight = (() => {
   return { r, y: yl, g: gr }
 })()
 
-people_umbrellas()
-
-function people_umbrellas(){
-  const cols = [0x1a1714, 0x1a1714, 0x5a1f24, 0x1f3a5a, 0x3a3a40, 0x6b5a3e]
-  peds.forEach(p => {
-    if (Math.random() < 0.45){
-      const um = new THREE.Mesh(
-        new THREE.ConeGeometry(0.52, 0.3, 10, 1, true),
-        new THREE.MeshBasicMaterial({ color: cols[(Math.random() * cols.length) | 0], transparent: true, opacity: 0.9, side: THREE.DoubleSide })
-      )
-      um.position.y = 1.62
-      um.visible = false
-      p.add(um)
-      p.userData.umbrella = um
-    }
-  })
-}
+/* Umbrellas now ship with the character (src/characters.js): every person
+   has one, ribbed and coloured, hidden until it actually rains. */
+function people_umbrellas(){}
 
 /* The single place the camera is driven each frame. Reduced motion swaps the
    travel function here and nowhere else, so there is no second animation path
@@ -4707,24 +4707,49 @@ function updateWorld(dt, t, doRender = true){
 
   peds.forEach(p => {
     const u = p.userData
-    const lightGate = (u.zone.x && Math.abs(p.position.z + 50) < 12) ? (state.light === 'red' ? 0.75 : 0.25) : 1
+    const rig = u.rig
+    /* traffic-light synchronisation: at a red light vehicles are stopped,
+       so pedestrians cross freely; on green they wait at the kerb */
+    const atCrossing = u.zone.x && Math.abs(p.position.z + 50) < 12
+    const lightGate = atCrossing ? (state.light === 'red' ? 1 : 0.18) : 1
     const pace = lightGate * atm.pedDensity
-    p.position.x += u.dir * u.speed * 0.5 * pace * dt
+    /* firework reaction: the crowd stops and looks up */
+    const fw = state.fireworks && (state.rainLevel || 1) > 0.7
+    const target = fw ? 0 : u.speed * 0.5 * pace
+    u.speedNow = lerp(u.speedNow === undefined ? target : u.speedNow, target, 0.08)
+    p.position.x += u.dir * u.speedNow * dt
     if (p.position.x > u.zone.x[1]) { p.position.x = u.zone.x[1]; u.dir = -1 }
     if (p.position.x < u.zone.x[0]) { p.position.x = u.zone.x[0]; u.dir = 1 }
     p.rotation.y = u.dir > 0 ? Math.PI / 2 : -Math.PI / 2
-    if (!REDUCED) p.position.y = Math.abs(Math.sin((t + u.bob) * 5)) * 0.03
-    if (u.umbrella){
-      /* umbrellas open only when it rains (§16) */
-      u.umbrella.visible = atm.rain > 0.3
-      u.umbrella.rotation.z = Math.sin(t * 1.4 + u.bob) * 0.03
+
+    /* walking cycle, or looking up at the fireworks */
+    if (fw){
+      p.rotation.y = lerp(p.rotation.y, 0, 0.06)
+      p.rotation.x = lerp(p.rotation.x, -0.42, 0.06)
+      if (rig && rig.breath) rig.breath.material.opacity = 0
+    } else {
+      p.rotation.x = lerp(p.rotation.x, 0, 0.1)
+      if (!REDUCED) animateCharacter(p, t + u.bob, u.speedNow / Math.max(0.2, u.speed))
     }
-    /* coats in snow, lighter cloth in spring (§16): tint the shared
-       body material from its stored base, cheap for ~16 pedestrians */
-    if (u.baseCol && u.bodyMat){
-      if (atm.snow > 0.3) u.bodyMat.color.copy(u.baseCol).multiplyScalar(0.55)
-      else if (atm.petal > 0.3) u.bodyMat.color.copy(u.baseCol).multiplyScalar(1.22)
-      else u.bodyMat.color.copy(u.baseCol)
+
+    /* weather response: umbrellas in rain, breath and coats in snow,
+       lighter cloth in spring */
+    if (rig){
+      rig.umbrella.visible = atm.rain > 0.08
+      rig.umbrella.rotation.z = Math.sin(t * 1.4 + u.bob) * 0.03
+      rig.breath.visible = atm.snow > 0.08
+      if (rig.breath.visible){
+        /* breath pulses on a slow cycle, drifting up and forward */
+        const cyc = (t * 0.5 + u.bob) % 1
+        rig.breath.scale.setScalar(0.5 + cyc * 1.5)
+        rig.breath.material.opacity = (1 - cyc) * 0.22 * clamp(atm.snow, 0, 1)
+        rig.breath.position.z = 0.10 + cyc * 0.14
+        rig.breath.position.y = (rig.breath.userData.y0 || (rig.breath.userData.y0 = rig.breath.position.y)) + cyc * 0.10
+      }
+    }
+    if (u.clothMat && u.clothMat.userData.base){
+      const k = atm.snow > 0.3 ? 0.55 : atm.petal > 0.3 ? 1.22 : 1
+      u.clothMat.color.copy(u.clothMat.userData.base).multiplyScalar(k)
     }
   })
 
@@ -5039,6 +5064,7 @@ if (import.meta.env && import.meta.env.DEV){
     rain, streaks, streakMat, peds, cat, get rainLevel(){ return state.rainLevel || 1 },
     get fireworks(){ return state.fireworks }, get fwBursts(){ return fwBursts },
     buildings: bldgGroups, ARCHETYPES, DISTRICT_PROFILES, buildingMats,
+    charMats, renderer,
     /* deterministic test pump: advance the exact per-frame logic without rAF */
     tick(dt, t){ updateWorld(dt == null ? 1/60 : dt, t == null ? tGlobal + 1/60 : t, false) }
   }

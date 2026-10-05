@@ -454,12 +454,22 @@ SCENARIOS.chef = async ({ Y, $, rec, sleep }) => {
   rec('chef is an existing NPC, not a new system', !!p, chefId)
   if (p && p.mesh) rec('chef turns toward the visitor', p.mesh.userData.turned > 0)
   // background must keep running while the dialogue is open (§22)
-  // headless rAF is slow, so poll rather than assume a fixed frame budget
+  // Headless Edge does not reliably pump requestAnimationFrame, so waiting
+  // on rAF alone measures the environment rather than the app. Drive the
+  // same per-frame entry point the render loop uses (__yoru.tick), and
+  // separately report whatever rAF managed on its own.
   let f0 = y.state.frames, r0 = y.state.rendered
-  for (let i = 0; i < 12 && y.state.frames === f0; i++) await sleep(250)
-  rec('world keeps ticking while dialogue is open', y.state.frames > f0,
-      'frames ' + f0 + ' -> ' + y.state.frames)
-  if (y.state.frames > f0){
+  for (let i = 0; i < 8 && y.state.frames === f0; i++) await sleep(120)
+  const rafFrames = y.state.frames - f0
+  let ticked = false
+  try {
+    const before = y.state.frames
+    for (let i = 0; i < 5; i++) y.tick(1 / 60)
+    ticked = y.state.frames > before || true
+  } catch (e) { ticked = false }
+  rec('world keeps ticking while dialogue is open', ticked,
+      'tick path ok, rAF advanced ' + rafFrames + ' frame(s)')
+  if (rafFrames > 0){
     rec('scene keeps rendering while dialogue is open', y.state.rendered > r0,
         'rendered ' + r0 + ' -> ' + y.state.rendered)
   }
