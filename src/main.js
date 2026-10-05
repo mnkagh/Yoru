@@ -170,19 +170,19 @@ city.add(snowSheet)
    architecture reads differently long before anyone reads a label.
    This is the first lever of the visual-bible building dressing. */
   const bMats = [
-  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.34,'#ffb36b',null,false,'#39424e') }),
-  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.22,'#9db8ff',null,false,'#333c46') }),
-  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.45,'#ffd9a0',null,false,'#4a423a') })
+  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.34,'#ffb36b',null,false,'#20262e') }),
+  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.22,'#9db8ff',null,false,'#1c242c') }),
+  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.45,'#ffd9a0',null,false,'#2a251e') })
 ]
 const FACADES = {
-  office:  [windowTexture(64,128,0.30,'#9db8ff',null,false,'#39424e'), windowTexture(64,128,0.22,'#b8c8ff',null,false,'#333c46')],
-  warm:    [windowTexture(64,128,0.30,'#ffb36b',null,false,'#4a423a'), windowTexture(64,128,0.20,'#ffc98a',null,false,'#423a32')],
-  luxe:    [windowTexture(64,128,0.24,'#e8dcc0',null,false,'#6a645a'), windowTexture(64,128,0.16,'#f0e8d8',null,false,'#5e584f')],
-  neon:    [windowTexture(64,128,0.30,'#ffd9a0','#ff2e88',false,'#242a33'), windowTexture(64,128,0.22,'#ffd9a0','#7fd4ff',false,'#1e242c')],
-  electric:[windowTexture(64,128,0.32,'#7fd4ff','#ff2e88',false,'#1c2a3a'), windowTexture(64,128,0.24,'#9adfff','#ffe95a',false,'#182432')],
-  market:  [windowTexture(64,128,0.30,'#7fd4ff','#ffb36b',false,'#2f4a4a'), windowTexture(64,128,0.20,'#bfe8ff',null,false,'#274042')],
-  traditional:[windowTexture(64,128,0.18,'#ffca8a',null,true,'#4a2f1f'), windowTexture(64,128,0.12,'#ffb36b',null,true,'#402818')],
-  residential:[windowTexture(64,128,0.26,'#ffc98a',null,false,'#4f4438'), windowTexture(64,128,0.18,'#ffb36b',null,false,'#463b30')]
+  office:  [windowTexture(64,128,0.30,'#9db8ff',null,false,'#20262e'), windowTexture(64,128,0.22,'#b8c8ff',null,false,'#1a2028')],
+  warm:    [windowTexture(64,128,0.30,'#ffb36b',null,false,'#2a2520'), windowTexture(64,128,0.20,'#ffc98a',null,false,'#241f1a')],
+  luxe:    [windowTexture(64,128,0.24,'#e8dcc0',null,false,'#3a362e'), windowTexture(64,128,0.16,'#f0e8d8',null,false,'#332f28')],
+  neon:    [windowTexture(64,128,0.30,'#ffd9a0','#ff2e88',false,'#161c24'), windowTexture(64,128,0.22,'#ffd9a0','#7fd4ff',false,'#121820')],
+  electric:[windowTexture(64,128,0.32,'#7fd4ff','#ff2e88',false,'#101c28'), windowTexture(64,128,0.24,'#9adfff','#ffe95a',false,'#0e1824')],
+  market:  [windowTexture(64,128,0.30,'#7fd4ff','#ffb36b',false,'#1c3030'), windowTexture(64,128,0.20,'#bfe8ff',null,false,'#182828')],
+  traditional:[windowTexture(64,128,0.18,'#ffca8a',null,true,'#2e1c10'), windowTexture(64,128,0.12,'#ffb36b',null,true,'#261810')],
+  residential:[windowTexture(64,128,0.26,'#ffc98a',null,false,'#2e2820'), windowTexture(64,128,0.18,'#ffb36b',null,false,'#28221b')]
 }
 const DISTRICT_FACADE = {
   shinjuku: 'office', nishishinjuku: 'warm', harajuku: 'neon', shibuya: 'neon',
@@ -208,6 +208,28 @@ function addBuilding(x, z, w, h, d, mat){
   const m = new THREE.Mesh(buildingGeo, mat)
   m.scale.set(w, h, d)
   m.position.set(x, h/2, z)
+  /* silhouette: a traditional hip roof, a tower antenna, a water tank,
+     or a setback penthouse — the district is read above the street too */
+  const dist = districtAtZ(z)
+  if (dist === 'asakusa'){
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w,d)*0.72, 1.6, 4), new THREE.MeshBasicMaterial({ color: 0x2a1c14 }))
+    roof.rotation.y = Math.PI/4
+    roof.position.set(x, h + 0.8, z)
+    city.add(roof)
+  } else if ((dist === 'shinjuku' || dist === 'akihabara' || dist === 'roppongi') && h > 20){
+    const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 3.4, 5), new THREE.MeshBasicMaterial({ color: 0x1a1e26 }))
+    ant.position.set(x, h + 1.7, z)
+    city.add(ant)
+  } else if (dist === 'ginza'){
+    const pent = new THREE.Mesh(buildingGeo, mat)
+    pent.scale.set(w*0.55, 2.4, d*0.6)
+    pent.position.set(x, h + 1.2, z)
+    city.add(pent)
+  } else if (dist === 'nakameguro' || dist === 'tsukiji'){
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1.1, 10), new THREE.MeshBasicMaterial({ color: 0x23262e }))
+    tank.position.set(x, h + 0.55, z)
+    city.add(tank)
+  }
   city.add(m)
   return m
 }
@@ -265,6 +287,42 @@ for(let i=0;i<70;i++){
   const z = -140 - Math.random()*80
   const m = addBuilding(x, z, w, h, d, bMats[Math.floor(Math.random()*3)])
   farBuildings.push(m)
+}
+
+/* distant mountains: low-poly silhouettes on the horizon so the sky
+   line is not a hard rectangle */
+{
+  const mMat = new THREE.MeshBasicMaterial({ color: 0x1a2230 })
+  const m1 = new THREE.Mesh(new THREE.ConeGeometry(60, 26, 5), mMat)
+  m1.position.set(-70, 0, -230)
+  const m2 = new THREE.Mesh(new THREE.ConeGeometry(45, 18, 5), mMat)
+  m2.position.set(30, 0, -235)
+  const m3 = new THREE.Mesh(new THREE.ConeGeometry(80, 30, 6), new THREE.MeshBasicMaterial({ color: 0x222a3a }))
+  m3.position.set(90, 0, -240)
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(14, 7, 6), new THREE.MeshBasicMaterial({ color: 0xc8d4e0 }))
+  cap.position.set(-70, 20, -230)
+  city.add(m1, m2, m3, cap)
+}
+
+/* street trees along the sidewalk every district, not just spring */
+{
+  const trunkMat = new THREE.MeshBasicMaterial({ color: 0x2a2018 })
+  const canopyMats = [0x2f4a2f, 0x3a5a3a, 0x27402a, 0x4a5a2f].map(c => new THREE.MeshBasicMaterial({ color: c }))
+  for (let z = 2; z > -146; z -= 14){
+    for (const side of [-1, 1]){
+      if (Math.random() < 0.4) continue
+      const env = DIST_ENV[districtAtZ(z)] || DIST_ENV.shinjuku
+      const g = new THREE.Group()
+      const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 2.2, 5), trunkMat)
+      tr.position.y = 1.1
+      const ca = new THREE.Mesh(new THREE.SphereGeometry(1.0 + Math.random()*0.5, 7, 6), canopyMats[(Math.random()*canopyMats.length)|0])
+      ca.position.y = 2.8
+      ca.scale.y = 0.8
+      g.add(tr, ca)
+      g.position.set(side * (env.xBase - 1.6), 0, z)
+      city.add(g)
+    }
+  }
 }
 
 /* ---------------- district landmarks (geography must make sense) -------
@@ -4758,9 +4816,9 @@ function updateWorld(dt, t, doRender = true){
   /* snow lands on the walls too: cool-white wash over the facade */
   const snowK = clamp(atm.snow, 0, 1) * 0.55
   allBuildingMats.forEach(m => m.color.setRGB(
-    bMatR * warmK * (1 - snowK) + 0.82 * snowK,
-    bMatG * warmK * (1 - snowK) + 0.86 * snowK,
-    bMatB * warmK * (1 - snowK) + 0.92 * snowK
+    bMatR * warmK * 0.5 * (1 - snowK) + 0.82 * snowK,
+    bMatG * warmK * 0.5 * (1 - snowK) + 0.86 * snowK,
+    bMatB * warmK * 0.5 * (1 - snowK) + 0.92 * snowK
   ))
 
   /* landmarks are silhouettes: they darken with the light so a noon
