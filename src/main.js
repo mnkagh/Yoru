@@ -8,6 +8,7 @@ import {
   makeCharacterMaterials, buildCharacter, dressCharacterForWeather,
   animateCharacter, mulberry
 } from './characters.js'
+import { makeVehicleMaterials, buildVehicle, dressVehicleForWeather, VEHICLE_TYPES } from './vehicles.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -586,33 +587,105 @@ function spawnRipple(x, z){
   r.userData.life = 1
 }
 
+/* --- traffic signals -------------------------------------------------------
+   A real signal: pole, head with three lenses, hood visors, and a
+   pedestrian head beside it. The lens that is lit is the state, so the
+   signal and the traffic are visibly the same thing. */
+const LANE = { out: 7.6, in: -7.6 }
+const signals = []
+{
+  const poleMat = new THREE.MeshBasicMaterial({ color: 0x24262b })
+  const boxMat = new THREE.MeshBasicMaterial({ color: 0x14171c })
+  const hoodMat = new THREE.MeshBasicMaterial({ color: 0x0d0f13 })
+  const lensGeo = new THREE.CircleGeometry(0.085, 12)
+  const mkLens = (hex) => {
+    const m = new THREE.Mesh(lensGeo, new THREE.MeshBasicMaterial({ color: hex }))
+    m.userData.base = new THREE.Color(hex)
+    m.userData.off = new THREE.Color(hex).multiplyScalar(0.18)
+    return m
+  }
+  const zSpots = [-44, -56, -70, -88, -102]
+  zSpots.forEach((z, i) => {
+    const side = i % 2 === 0 ? -1 : 1
+    const g = new THREE.Group()
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 4.2, 8), poleMat)
+    pole.position.y = 2.1
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.24, 8), poleMat)
+    base.position.y = 0.12
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.80, 0.20), boxMat)
+    head.position.set(0, 3.9, 0)
+    /* three lenses, top to bottom: red, yellow, green */
+    const lenses = {}
+    ;[['red',0xff3020,0.28],['yellow',0xffc020,0],['green',0x30d060,-0.28]].forEach(([k, hex, off]) => {
+      const l = mkLens(hex)
+      l.position.set(0, 3.9 + off, 0.105)
+      const hood = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.13, 10, 1, true), hoodMat)
+      hood.rotation.x = Math.PI / 2
+      hood.position.set(0, 3.9 + off, 0.15)
+      g.add(l, hood)
+      lenses[k] = l
+    })
+    /* pedestrian head: a small box with two lenses */
+    const ped = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.34, 0.16), boxMat)
+    ped.position.set(0, 2.6, 0)
+    const pedRed = mkLens(0xff3020)
+    pedRed.position.set(0, 2.70, 0.085)
+    const pedGreen = mkLens(0x30d060)
+    pedGreen.position.set(0, 2.50, 0.085)
+    g.add(ped, pedRed, pedGreen)
+    g.add(pole, base, head)
+    g.position.set(side * (LANE.out + 1.5), 0, z)
+    g.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2
+    g.userData = { type: 'signal', lenses, pedRed, pedGreen, z }
+    city.add(g)
+    signals.push(g)
+  })
+}
+
+/* the signal cycle drives BOTH the lights and the traffic/pedestrian
+   behaviour, so what you see is what is happening */
+const SIGNAL_CYCLE = ['green', 'yellow', 'red']
+let signalIdx = 0, signalHold = 0
+function updateSignals(dt){
+  signalHold -= dt
+  if (signalHold <= 0){
+    signalIdx = (signalIdx + 1) % SIGNAL_CYCLE.length
+    /* green runs long, yellow is brief — the real proportion */
+    signalHold = SIGNAL_CYCLE[signalIdx] === 'yellow' ? 2.4 : 9.5
+    state.light = SIGNAL_CYCLE[signalIdx]
+  }
+  const cur = state.light
+  signals.forEach(s => {
+    for (const k of ['red','yellow','green'])
+      s.userData.lenses[k].material.color.copy(
+        k === cur ? s.userData.lenses[k].userData.base : s.userData.lenses[k].userData.off)
+    /* pedestrians get the opposite of vehicles, as they do in Tokyo */
+    s.userData.pedRed.material.color.copy(
+      cur === 'green' ? s.userData.pedRed.userData.base : s.userData.pedRed.userData.off)
+    s.userData.pedGreen.material.color.copy(
+      cur === 'red' ? s.userData.pedGreen.userData.base : s.userData.pedGreen.userData.off)
+  })
+}
+const vehicleMats = makeVehicleMaterials()
 const cars = []
-const carGeo = new THREE.BoxGeometry(1.7, 0.55, 0.75)
-const vanGeo = new THREE.BoxGeometry(1.9, 0.95, 0.8)
-const busGeo = new THREE.BoxGeometry(3.6, 1.15, 1.0)
-const truckGeo = new THREE.BoxGeometry(2.6, 1.0, 1.0)
-const bikeGeo = new THREE.BoxGeometry(0.5, 0.32, 1.1)
-for(let i=0;i<14;i++){
-  const dir = i%2===0 ? 1 : -1
-  const kind = i % 5 === 3 ? 'taxi' : (i % 5 === 4 ? 'van' : 'car')
-  const mat = new THREE.MeshBasicMaterial({ color: kind === 'taxi' ? 0x2a2a1c : 0x1c2434 })
-  const c = new THREE.Mesh(kind === 'van' ? vanGeo : carGeo, mat)
-  const lane = dir>0 ? 7.6 : -7.6
-  c.position.set((Math.random()-0.5)*24, kind === 'van' ? 0.6 : 0.4, -12 - i*7 - Math.random()*4)
-  const head = new THREE.Mesh(new THREE.PlaneGeometry(0.5,0.3), new THREE.MeshBasicMaterial({ color: dir>0 ? 0xfff6d8 : 0xff3b30 }))
-  head.position.set(dir>0?0.9:-0.9, 0, 0)
-  head.rotation.y = dir>0 ? Math.PI/2 : -Math.PI/2
-  c.add(head)
-  /* overlays are shared per car and toggled by district dressing */
-  const roofSign = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.2), new THREE.MeshBasicMaterial({ color: 0xffe95a }))
-  roofSign.position.set(0, 0.36, 0); roofSign.visible = (kind === 'taxi'); c.add(roofSign)
-  const busStrip = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.3, 1.02), new THREE.MeshBasicMaterial({ color: 0xd8e6ff, transparent: true, opacity: 0.55 }))
-  busStrip.position.set(0, 0.25, 0); busStrip.visible = false; c.add(busStrip)
-  const rider = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.7, 0.35), new THREE.MeshBasicMaterial({ color: 0x2a2f3a }))
-  rider.position.set(0, 0.55, 0); rider.visible = false; c.add(rider)
-  c.userData = { dir, speed: 5+Math.random()*5, headMat: head.material, headBase: head.material.color.clone(), isHead: dir > 0, kind, roofSign, busStrip, rider }
-  city.add(c)
-  cars.push(c)
+let vehSeed = 5309
+function addVehicle(type, x, z, dir){
+  const v = buildVehicle({ type, materials: vehicleMats, seed: (vehSeed += 3571), parent: city })
+  v.position.set(x, 0, z)
+  v.userData.dir = dir
+  v.userData.bodyMat.userData.base = v.userData.bodyMat.color.clone()
+  cars.push(v)
+  return v
+}
+for (let i = 0; i < 16; i++){
+  const dir = i % 2 === 0 ? 1 : -1
+  /* a real Tokyo street mix: taxis dominate, plus kei cars, hatchbacks,
+     vans, a bus, a truck and bicycles on the kerb lane */
+  const type = i % 7 === 3 ? 'taxi' : i % 7 === 5 ? 'van' : i % 7 === 6 ? 'bicycle'
+    : i % 7 === 4 ? 'bus' : i % 7 === 2 ? 'kei' : i % 11 === 7 ? 'truck'
+    : i % 4 === 1 ? 'minivan' : 'hatchback'
+  const lane = dir > 0 ? LANE.out : LANE.in
+  addVehicle(type, lane + (vehSeed % 7) * 0.2, -12 - i * 7.5 - (vehSeed % 4), dir)
 }
 
 const train = new THREE.Group()
@@ -4194,23 +4267,19 @@ function dressEnvironment(world){
   signs.forEach(m => { if (m.userData.isScreen) m.visible = props.indexOf('screens') > -1 })
   lanterns.forEach(l => { l.visible = props.indexOf('lanterns') > -1 })
   arcadeCab.visible = props.indexOf('screens') > -1 || props.indexOf('gacha') > -1
-  /* Vehicles become what the district actually runs */
-  const allowed = ['taxi', 'van', 'car', 'bus', 'truck', 'bicycle']
+  /* Traffic: the district decides which vehicles are on the road. Geometry is
+     never swapped — a taxi that turns into a bus would lose its whole
+     silhouette — so each vehicle keeps its own body and is shown or hidden. */
+  const allowed = ['taxi','kei','hatchback','minivan','van','bus','truck','bicycle']
   const list = (world.vehicles || []).filter(v => allowed.indexOf(v) > -1)
-  const kinds = list.length ? list : ['car']
+  const kinds = list.length ? list : ['taxi']
   cars.forEach((c, i) => {
     const u = c.userData
     const k = kinds[i % kinds.length]
-    u.kind = k
-    u.roofSign.visible = k === 'taxi'
-    u.busStrip.visible = k === 'bus'
-    u.rider.visible = k === 'bicycle'
-    if (k === 'bus'){ c.geometry = busGeo; c.material.color.setHex(0x24386b); c.position.y = 0.62 }
-    else if (k === 'truck'){ c.geometry = truckGeo; c.material.color.setHex(0x2a2f38); c.position.y = 0.6 }
-    else if (k === 'bicycle'){ c.geometry = bikeGeo; c.material.color.setHex(0x14181f); c.position.y = 0.2 }
-    else if (k === 'van'){ c.geometry = vanGeo; c.material.color.setHex(0x1c2434); c.position.y = 0.6 }
-    else if (k === 'taxi'){ c.geometry = carGeo; c.material.color.setHex(0x2a2a1c); c.position.y = 0.4 }
-    else { c.geometry = carGeo; c.material.color.setHex(0x1c2434); c.position.y = 0.4 }
+    /* a bicycle belongs on the kerb, not the carriageway */
+    c.visible = u.kind === k
+    const wantX = (u.dir > 0 ? LANE.out : LANE.in) + (k === 'bicycle' ? -u.dir * 4.2 : 0)
+    u.laneX = wantX
   })
 }
 
@@ -4688,21 +4757,48 @@ function updateWorld(dt, t, doRender = true){
 
   const atm = atmosphere.state.cur
   const timeIsNight = atm.light < 0.62
+  /* the signal is the single source of truth for both traffic and people */
+  updateSignals(dt)
   cars.forEach(c => {
+    if (!c.visible) return
     const u = c.userData
-    let nz = c.position.z + u.dir * u.speed * 0.55 * atm.traffic * dt
-    if (state.light !== 'green'){
-      if (u.dir < 0 && c.position.z > -44 && nz <= -44) nz = -44
-      if (u.dir > 0 && c.position.z < -56 && nz >= -56) nz = -56
+    const laneX = u.laneX === undefined ? (u.dir > 0 ? LANE.out : LANE.in) : u.laneX
+    /* vehicles stop at the stop line on red and amber, and queue behind
+       whatever is already stopped rather than driving through it */
+    const stopped = state.light === 'red'
+    const slowFor = state.light === 'yellow' ? 0.35 : 1
+    let nz = c.position.z + u.dir * u.speed * 0.55 * atm.traffic * slowFor * dt
+    if (stopped){
+      const stopZ = c.position.z > -50 ? -44 : -56
+      if (u.dir < 0 && c.position.z > stopZ && nz <= stopZ) nz = stopZ
+      if (u.dir > 0 && c.position.z < stopZ && nz >= stopZ) nz = stopZ
     }
     if (nz < -124) nz = 12
     if (nz > 12) nz = -124
+    const moved = Math.abs(nz - c.position.z)
     c.position.z = nz
-    /* headlights work at night and reflect the wet: brighter when dark */
-    if (u.headMat && u.headBase && u.isHead){
-      const k = timeIsNight ? (0.9 + atm.wet * 0.5) : 0.55
-      u.headMat.color.copy(u.headBase).multiplyScalar(k)
+    /* ease toward the kerb lane; bicycles use their own offset */
+    c.position.x = lerp(c.position.x, laneX, 0.04)
+    /* face the direction of travel */
+    const wantRot = u.dir > 0 ? 0 : Math.PI
+    c.rotation.y = lerp(c.rotation.y, wantRot, 0.05)
+    /* wheels roll at the speed the vehicle actually moved */
+    if (u.wheels && u.wheels.length){
+      const spin = moved / Math.max(0.2, u.wheelR)
+      for (const w of u.wheels) w.rotation.z -= spin
     }
+    /* headlights brighter at night and in rain, dimmer by day */
+    if (u.headMat){
+      const k = timeIsNight ? 0.95 + clamp(atm.wet, 0, 1) * 0.4 : 0.5
+      u.headMat.color.copy(u.headMat.userData.base || u.headMat.color).multiplyScalar(k)
+    }
+    if (u.tailMat){
+      /* brake lights come on while stopped at a red */
+      const k = stopped ? 1.15 : (timeIsNight ? 0.7 : 0.35)
+      u.tailMat.color.copy(u.tailMat.userData.base || u.tailMat.color).multiplyScalar(k)
+    }
+    /* weather surface response: rain darkens and glosses the body */
+    dressVehicleForWeather(c, atm)
   })
 
   peds.forEach(p => {
