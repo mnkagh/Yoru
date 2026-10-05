@@ -97,24 +97,27 @@ function canvasTex(w, h, draw){
   return { tex, cv, ctx: cv.getContext('2d') }
 }
 
-function windowTexture(w, h, lit, warm, accent, wood){
+function windowTexture(w, h, lit, warm, accent, wood, base){
   return canvasTex(w, h, (ctx)=>{
-    ctx.fillStyle = wood ? '#1c120c' : '#0a0d15'; ctx.fillRect(0,0,w,h)
+    ctx.fillStyle = base || (wood ? '#4a2f1f' : '#2a2f3a'); ctx.fillRect(0,0,w,h)
     if (wood){
       /* horizontal timber slats give traditional districts a different
          facade rhythm than modern glass offices */
-      ctx.strokeStyle = 'rgba(58,38,26,0.85)'; ctx.lineWidth = 1.6
+      ctx.strokeStyle = 'rgba(40,22,12,0.9)'; ctx.lineWidth = 1.6
       for (let y = 3; y < h; y += 7){ ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke() }
     }
     const cols = 6, rows = Math.round(h/w*cols*1.6)
     const cw = w/cols, rh = h/rows
     for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
-      if(Math.random() < lit){
-        const roll = Math.random()
+      const roll = Math.random()
+      if (roll < lit){
         ctx.fillStyle = roll < 0.1 && accent ? accent : (roll < 0.4 ? warm : '#ffd9a0')
-        ctx.globalAlpha = 0.35 + Math.random()*0.6
-        ctx.fillRect(x*cw+cw*0.22, y*rh+rh*0.28, cw*0.56, rh*0.44)
+        ctx.globalAlpha = 0.55 + Math.random()*0.45
+      } else {
+        ctx.fillStyle = '#0b0e16'
+        ctx.globalAlpha = 0.9
       }
+      ctx.fillRect(x*cw+cw*0.18, y*rh+rh*0.24, cw*0.64, rh*0.52)
     }
     ctx.globalAlpha = 1
   }).tex
@@ -166,20 +169,20 @@ city.add(snowSheet)
 /* Facade archetypes: each district gets its own window language, so the
    architecture reads differently long before anyone reads a label.
    This is the first lever of the visual-bible building dressing. */
-const bMats = [
-  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.34,'#ffb36b',null,false) }),
-  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.22,'#9db8ff',null,false) }),
-  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.45,'#ffd9a0',null,false) })
+  const bMats = [
+  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.34,'#ffb36b',null,false,'#39424e') }),
+  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.22,'#9db8ff',null,false,'#333c46') }),
+  new THREE.MeshBasicMaterial({ map: windowTexture(64,128,0.45,'#ffd9a0',null,false,'#4a423a') })
 ]
 const FACADES = {
-  office:  [windowTexture(64,128,0.30,'#9db8ff',null,false), windowTexture(64,128,0.22,'#b8c8ff',null,false)],
-  warm:    [windowTexture(64,128,0.30,'#ffb36b',null,false), windowTexture(64,128,0.20,'#ffc98a',null,false)],
-  luxe:    [windowTexture(64,128,0.24,'#e8dcc0',null,false), windowTexture(64,128,0.16,'#f0e8d8',null,false)],
-  neon:    [windowTexture(64,128,0.30,'#ffd9a0','#ff2e88',false), windowTexture(64,128,0.22,'#ffd9a0','#7fd4ff',false)],
-  electric:[windowTexture(64,128,0.32,'#7fd4ff','#ff2e88',false), windowTexture(64,128,0.24,'#9adfff','#ffe95a',false)],
-  market:  [windowTexture(64,128,0.30,'#7fd4ff','#ffb36b',false), windowTexture(64,128,0.20,'#bfe8ff',null,false)],
-  traditional:[windowTexture(64,128,0.18,'#ffca8a',null,true), windowTexture(64,128,0.12,'#ffb36b',null,true)],
-  residential:[windowTexture(64,128,0.26,'#ffc98a',null,false), windowTexture(64,128,0.18,'#ffb36b',null,false)]
+  office:  [windowTexture(64,128,0.30,'#9db8ff',null,false,'#39424e'), windowTexture(64,128,0.22,'#b8c8ff',null,false,'#333c46')],
+  warm:    [windowTexture(64,128,0.30,'#ffb36b',null,false,'#4a423a'), windowTexture(64,128,0.20,'#ffc98a',null,false,'#423a32')],
+  luxe:    [windowTexture(64,128,0.24,'#e8dcc0',null,false,'#6a645a'), windowTexture(64,128,0.16,'#f0e8d8',null,false,'#5e584f')],
+  neon:    [windowTexture(64,128,0.30,'#ffd9a0','#ff2e88',false,'#242a33'), windowTexture(64,128,0.22,'#ffd9a0','#7fd4ff',false,'#1e242c')],
+  electric:[windowTexture(64,128,0.32,'#7fd4ff','#ff2e88',false,'#1c2a3a'), windowTexture(64,128,0.24,'#9adfff','#ffe95a',false,'#182432')],
+  market:  [windowTexture(64,128,0.30,'#7fd4ff','#ffb36b',false,'#2f4a4a'), windowTexture(64,128,0.20,'#bfe8ff',null,false,'#274042')],
+  traditional:[windowTexture(64,128,0.18,'#ffca8a',null,true,'#4a2f1f'), windowTexture(64,128,0.12,'#ffb36b',null,true,'#402818')],
+  residential:[windowTexture(64,128,0.26,'#ffc98a',null,false,'#4f4438'), windowTexture(64,128,0.18,'#ffb36b',null,false,'#463b30')]
 }
 const DISTRICT_FACADE = {
   shinjuku: 'office', nishishinjuku: 'warm', harajuku: 'neon', shibuya: 'neon',
@@ -4726,9 +4729,9 @@ function updateWorld(dt, t, doRender = true){
   /* snow lands on the walls too: cool-white wash over the facade */
   const snowK = clamp(atm.snow, 0, 1) * 0.55
   allBuildingMats.forEach(m => m.color.setRGB(
-    bMatR * warmK * 0.62 * (1 - snowK) + 0.82 * snowK,
-    bMatG * warmK * 0.62 * (1 - snowK) + 0.86 * snowK,
-    bMatB * warmK * 0.62 * (1 - snowK) + 0.92 * snowK
+    bMatR * warmK * (1 - snowK) + 0.82 * snowK,
+    bMatG * warmK * (1 - snowK) + 0.86 * snowK,
+    bMatB * warmK * (1 - snowK) + 0.92 * snowK
   ))
 
   /* landmarks are silhouettes: they darken with the light so a noon
