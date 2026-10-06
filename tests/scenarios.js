@@ -1033,6 +1033,72 @@ y.setSignal('red', true)
       'z=-160 -> ' + y.districtAtZ(-160))
   rec('Asakusa still resolves before it', y.districtAtZ(-130) === 'asakusa',
       'z=-130 -> ' + y.districtAtZ(-130))
+
+  /* ---- fireworks: intensity, coexistence, and that they are actually
+         rendered rather than merely configured ---- */
+  const fwSet = (level, time, weather) => {
+    y.state.fireworks = true
+    y.state.fwLevel = level
+    y.atmosphere.set({ time, weather }, true)
+    y.fwReset()
+    let steps = 0
+    while (steps < 3600 && y.fwBursts.filter(b => b.life < 0.95 && b.life > 0.6).length < 1){
+      y.tick(1 / 60, 900 + steps / 60)
+      steps++
+    }
+    return steps
+  }
+  /* burst COUNT is a cadence property, so measure it over a fixed span of
+     simulation rather than at the instant the first burst appears */
+  const countOver = (level, seconds) => {
+    y.state.fireworks = true
+    y.state.fwLevel = level
+    y.atmosphere.set({ time: 'night', weather: 'sunny' }, true)
+    y.fwReset()
+    let peak = 0
+    const n = Math.round(seconds * 60)
+    for (let i = 0; i < n; i++){
+      y.tick(1 / 60, 900 + i / 60)
+      if (y.fwBursts.length > peak) peak = y.fwBursts.length
+    }
+    return peak
+  }
+  const low = countOver('low', 14), med = countOver('medium', 14), high = countOver('high', 14)
+  rec('fireworks intensity changes how many bursts are live', high > med && med > low,
+      'peak concurrent: low ' + low + ' / medium ' + med + ' / high ' + high)
+  rec('LOW still produces a burst', low >= 1, low + ' concurrent at LOW')
+
+  /* particle count per burst scales with intensity */
+  const particles = () => {
+    const b = y.fwBursts[0]
+    return b ? b.pts.geometry.attributes.position.count : 0
+  }
+  fwSet('low', 'night', 'sunny'); const pLow = particles()
+  fwSet('high', 'night', 'sunny'); const pHigh = particles()
+  rec('HIGH bursts carry more sparks than LOW', pHigh > pLow * 1.4,
+      pLow + ' -> ' + pHigh + ' sparks')
+
+  /* fireworks are an EVENT layer: every weather must keep running */
+  for (const [wx, label] of [['sunny','sunny'],['rain','rain'],['snow','snow'],['spring','spring']]){
+    fwSet('medium', 'night', wx)
+    const rain = y.rain.visible, snow = y.atmosphere.state.cur.snow, petal = y.atmosphere.state.cur.petal
+    const burst = y.fwBursts.length
+    rec('fireworks coexist with ' + label,
+        burst > 0 && ((wx !== 'rain') || rain) && ((wx !== 'snow') || snow > 0.5) && ((wx !== 'spring') || petal > 0.5),
+        'bursts=' + burst + ' rain=' + rain + ' snow=' + snow.toFixed(2) + ' petal=' + petal.toFixed(2))
+  }
+  /* and in daylight, where fireworks must still work but stay subtle */
+  fwSet('medium', 'day', 'sunny')
+  rec('fireworks work in daylight as a special event', y.fwBursts.length > 0,
+      y.fwBursts.length + ' bursts at noon')
+
+  /* HIGH stops and turns the crowd */
+  y.setSignal('green', false)
+  fwSet('high', 'night', 'sunny')
+  tick(30)
+  const looking = y.peds.filter(p => Math.abs(p.rotation.x) > 0.2).length
+  rec('at HIGH fireworks the crowd stops and looks up', looking >= 3,
+      looking + '/' + y.peds.length + ' looking up')
 }
 
 /* drive the signal system to a known state without waiting for the cycle */

@@ -17,7 +17,7 @@
    a frame and write a #png pre, which we copy here for --dump-dom. */
 const q = new URLSearchParams(location.search)
 const inner = new URLSearchParams()
-for (const k of ['p','time','weather','ui','out','frames']) {
+for (const k of ['p','time','weather','ui','out','frames','fw']) {
   const v = q.get(k); if (v !== null) inner.set(k, v)
 }
 inner.set('shot', '1')
@@ -54,6 +54,13 @@ addEventListener('load', async () => {
           sout.id = 'stats'
           sout.textContent = sp.textContent
           document.body.appendChild(sout)
+        }
+        const fp = d.querySelector('#fwstats')
+        if (fp){
+          const fout = document.createElement('pre')
+          fout.id = 'fwstats'
+          fout.textContent = fp.textContent
+          document.body.appendChild(fout)
         }
         document.title = 'SHOTDONE:' + (q.get('out') || 'shot')
         return

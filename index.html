@@ -453,6 +453,14 @@ body.dlg-typing .dlg-type{display:flex}
           <button type="button" id="atmos-fireworks">Fireworks</button>
         </div>
       </div>
+      <div class="atmos-group" id="atmos-fw-levels" hidden>
+        <span class="atmos-key mono">Fireworks</span>
+        <div class="atmos-opts small" role="group" aria-label="Firework intensity">
+          <button type="button" data-fw="low">Low</button>
+          <button type="button" data-fw="medium" class="on">Medium</button>
+          <button type="button" data-fw="high">High</button>
+        </div>
+      </div>
     <div class="atmos-group">
       <span class="atmos-key mono">Change every</span>
       <div class="atmos-opts small" id="atmos-auto" role="group" aria-label="Automatic atmosphere change">
@@ -769,28 +777,6 @@ setTimeout(function(){
     m.textContent='The 3D scene did not initialise within 8 seconds.\n\n- Confirm the dev server is running\n- Confirm WebGL works in this browser';
   }
 },8000);
-</script>
-<script>
-/* boot diagnostics: a module error must be visible rather than a blank
-   canvas. Removed once boot is verified clean. */
-window.__boot = []
-window.addEventListener('error', e => {
-  window.__boot.push((e.message || 'error') + ' @ ' + (e.filename || '?') + ':' + (e.lineno || 0))
-  const el = document.getElementById('boot-error') || (function(){
-    const d = document.createElement('pre'); d.id = 'boot-error'
-    d.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999;max-width:90vw;white-space:pre-wrap;color:#f66;background:#000a;padding:8px;font:11px monospace'
-    document.body.appendChild(d); return d
-  })()
-  el.textContent = window.__boot.join('\n')
-})
-window.addEventListener('unhandledrejection', e => {
-  const el = document.getElementById('boot-error') || (function(){
-    const d = document.createElement('pre'); d.id = 'boot-error'
-    d.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999;color:#f66;background:#000a;padding:8px;font:11px monospace'
-    document.body.appendChild(d); return d
-  })()
-  el.textContent += '\nREJ: ' + e.reason
-})
 </script>
 <script type="module" src="/src/main.js"></script>
 

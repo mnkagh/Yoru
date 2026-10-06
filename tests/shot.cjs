@@ -10,14 +10,15 @@ const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
 const BASE = 'http://localhost:5199'
 const SHOTS = path.join(__dirname, '..', 'shots')
 
-const [name, p = '0.5', time = 'night', weather = 'rain', W = '1440', H = '810', ui = '1'] = process.argv.slice(2)
+const [name, p = '0.5', time = 'night', weather = 'rain', W = '1440', H = '810', ui = '1', fw = ''] = process.argv.slice(2)
 
 fs.mkdirSync(SHOTS, { recursive: true })
 const outFile = path.join(SHOTS, name + '.png')
 if (fs.existsSync(outFile)) fs.unlinkSync(outFile)
 
 const profile = path.join(require('os').tmpdir(), 'yoru-shot-' + Date.now())
-const url = `${BASE}/tests/shot.html?p=${p}&time=${time}&weather=${weather}&ui=${ui}&out=${name}`
+const url = `${BASE}/tests/shot.html?p=${p}&time=${time}&weather=${weather}&ui=${ui}&out=${name}` +
+            (fw ? `&fw=${fw}` : '')
 const args = [
   '--headless=new', '--enable-unsafe-swiftshader', '--no-sandbox',
   '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check',
@@ -32,9 +33,15 @@ try {
 
 const m = dom.match(/<pre id="png"[^>]*>(data:image\/png;base64,)([\s\S]*?)<\/pre>/)
 const sm = dom.match(/<pre id="stats"[^>]*>([\s\S]*?)<\/pre>/)
+const fm = dom.match(/<pre id="fwstats"[^>]*>([\s\S]*?)<\/pre>/)
 fs.writeFileSync(path.join(require('os').tmpdir(), 'yoru-shot-dom.html'), dom)
 if (sm){
   try { console.log('  stats: ' + sm[1].trim()) } catch (e){}
+}
+if (fm){
+  /* for a fireworks capture this is the proof: bursts existed, and how
+     many of them were inside the camera frustum */
+  try { console.log('  fw: ' + fm[1].trim()) } catch (e){}
 }
 if (!m){
   const dbg = path.join(require('os').tmpdir(), 'yoru-shot-dom.html')

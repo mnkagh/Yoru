@@ -1153,28 +1153,82 @@ scene.add(camera)
 
   /* fireworks: real 3D bursts above the skyline, scaled by intensity */
   const fwBursts = []
+  const fwSmoke = []
   let fwNext = 0
-  const fwGeoProto = new THREE.BufferGeometry()
+  let fwFlash = 0
+  /* one shared additive light so a burst actually illuminates the street */
+  const fwLight = new THREE.PointLight(0xffd9a0, 0, 260, 2)
+  fwLight.position.set(0, 60, -190)
+  scene.add(fwLight)
+  /* and a wide ground flash, so wet roads and blossom pick it up */
+  const fwGround = new THREE.Mesh(
+    new THREE.PlaneGeometry(420, 420),
+    new THREE.MeshBasicMaterial({ color: 0xffd0a0, transparent: true, opacity: 0,
+      depthWrite: false, blending: THREE.AdditiveBlending })
+  )
+  fwGround.rotation.x = -Math.PI / 2
+  fwGround.position.set(0, 0.06, -90)
+  scene.add(fwGround)
+  const fwSmokeTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64
+    const x = c.getContext('2d')
+    const g = x.createRadialGradient(32, 32, 2, 32, 32, 31)
+    g.addColorStop(0, 'rgba(180,170,160,0.55)')
+    g.addColorStop(0.6, 'rgba(150,142,134,0.22)')
+    g.addColorStop(1, 'rgba(140,132,124,0)')
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64)
+    return new THREE.CanvasTexture(c)
+  })()
+  /* FIREWORKS INTENSITY: low / medium / high, an event layer on top of
+     whatever weather is running — never exclusive with it */
+  const FW_LEVELS = { low: 0.45, medium: 1, high: 1.7 }
+  let fwSeed = 20260806
+  function fwRnd(){
+    fwSeed = (fwSeed * 1103515245 + 12345) & 0x7fffffff
+    return fwSeed / 0x7fffffff
+  }
   function spawnFirework(t){
-    const n = 70
+    const lvl = FW_LEVELS[state.fwLevel] || 1
+    const n = Math.round(46 + 74 * lvl)
     const pos = new Float32Array(n * 3)
     const vel = []
-    const cx = (Math.random() - 0.5) * 60, cy = 55 + Math.random() * 25, cz = -190 - Math.random() * 40
-    const cols = [0xffd9a0, 0xff9a6a, 0x9adfff, 0xffb3c8, 0xe8f0ff]
-    const col = cols[(Math.random() * cols.length) | 0]
+    /* launch point: high, wide, and biased down the street so it sits in
+       front of the camera rather than behind it */
+    const cx = (fwRnd() - 0.5) * 110
+    const cy = 52 + fwRnd() * 42
+    const cz = -120 - fwRnd() * 130
+    const cols = [0xffd9a0, 0xff9a6a, 0x9adfff, 0xffb3c8, 0xe8f0ff, 0xfff2c4]
+    const col = cols[(fwRnd() * cols.length) | 0]
     for (let i = 0; i < n; i++){
       pos[i*3] = cx; pos[i*3+1] = cy; pos[i*3+2] = cz
-      const th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1)
-      const sp = (4 + Math.random() * 9) * (0.7 + (state.rainLevel || 1) * 0.4)
-      vel.push([Math.sin(ph)*Math.cos(th)*sp, Math.cos(ph)*sp, Math.sin(ph)*Math.sin(th)*sp * 0.4])
+      const th = fwRnd() * Math.PI * 2, ph = Math.acos(2 * fwRnd() - 1)
+      const sp = (5 + fwRnd() * 12) * (0.65 + lvl * 0.55)
+      vel.push([Math.sin(ph)*Math.cos(th)*sp, Math.cos(ph)*sp, Math.sin(ph)*Math.sin(th)*sp * 0.34])
     }
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    const m = new THREE.PointsMaterial({ color: col, size: 0.9, transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending })
+    const m = new THREE.PointsMaterial({
+      color: col, size: 1.1 + lvl * 0.5, transparent: true, opacity: 1,
+      depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true
+    })
     const pts = new THREE.Points(g, m)
     pts.frustumCulled = false
     scene.add(pts)
-    fwBursts.push({ pts, vel, life: 1, max: 1 + Math.random() * 0.6 })
+    fwBursts.push({ pts, vel, life: 1, max: 1.1 + fwRnd() * 0.8, col })
+    /* smoke hangs where the burst was, and lingers longer at HIGH */
+    if (lvl > 0.7){
+      const puff = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: fwSmokeTex, transparent: true, opacity: 0.20 + lvl * 0.14,
+        depthWrite: false, color: 0x9a948c
+      }))
+      puff.position.set(cx, cy, cz)
+      puff.scale.setScalar(14 + lvl * 16)
+      scene.add(puff)
+      fwSmoke.push({ puff, life: 1, max: 2.6 + lvl * 2.4 })
+    }
+    fwFlash = Math.max(fwFlash, 0.35 + lvl * 0.35)
+    fwLight.position.set(cx, cy, cz)
+    fwLight.color.setHex(col)
   }
 const streakN = IS_TOUCH ? 130 : 320
 const streakBase = new Float32Array(streakN*3)
@@ -1214,6 +1268,7 @@ window.addEventListener('pointerdown', () => {
 const state = {
   mode:'hero',
   fireworks: false,
+  fwLevel: 'medium',
   p:0,
   clock: 23*60+47,
   trafficT:0,
@@ -4574,10 +4629,22 @@ atmosTimes.querySelectorAll('button').forEach(b => {
     })
   })
   const fwBtn = $('atmos-fireworks')
+  const fwLevels = $('atmos-fw-levels')
   if (fwBtn) fwBtn.addEventListener('click', () => {
     state.fireworks = !state.fireworks
     fwBtn.classList.toggle('on', state.fireworks)
-    if (state.fireworks) toast('Fireworks over the bay — look up')
+    if (fwLevels) fwLevels.hidden = !state.fireworks
+    if (state.fireworks){
+      toast(state.fwLevel === 'high'
+        ? 'Fireworks over the bay — the whole crowd will stop and look up'
+        : 'Fireworks over the bay — look up')
+    }
+  })
+  if (fwLevels) fwLevels.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => {
+      state.fwLevel = b.dataset.fw
+      fwLevels.querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b))
+    })
   })
 
 const AUTO_COPY = {
@@ -5427,10 +5494,15 @@ function updateWorld(dt, t, doRender = true){
   sp2.needsUpdate = true
   steamMat.opacity = 0.16 + Math.sin(t * 0.7) * 0.03
 
-  /* fireworks: launch on a low cadence, scale with intensity */
+  /* fireworks: launch on a cadence set by the firework intensity, then let
+     smoke drift, the flash decay, and the wet ground carry the light.
+     This is an EVENT layer — rain, snow and spring all keep running. */
   if (state.fireworks && t >= fwNext){
+    const lvl = FW_LEVELS[state.fwLevel] || 1
     spawnFirework(t)
-    fwNext = t + ((state.rainLevel || 1) > 1.3 ? 1.0 : (state.rainLevel || 1) < 0.7 ? 2.6 : 1.6)
+    /* HIGH overlaps several bursts; LOW is an occasional one */
+    fwNext = t + (lvl > 1.3 ? 0.35 + fwRnd() * 0.35
+      : lvl < 0.7 ? 2.4 + fwRnd() * 1.4 : 1.2 + fwRnd() * 0.6)
   }
   for (let i = fwBursts.length - 1; i >= 0; i--){
     const b = fwBursts[i]
@@ -5438,16 +5510,38 @@ function updateWorld(dt, t, doRender = true){
     const p = b.pts.geometry.attributes.position
     for (let j = 0; j < b.vel.length; j++){
       b.vel[j][1] -= 5.5 * dt
+      /* drag: sparks slow as they cool, which is what makes them read */
+      const drag = 1 - 0.9 * dt
+      b.vel[j][0] *= drag; b.vel[j][2] *= drag
       p.setXYZ(j, p.getX(j) + b.vel[j][0] * dt, p.getY(j) + b.vel[j][1] * dt, p.getZ(j) + b.vel[j][2] * dt)
     }
     p.needsUpdate = true
-    b.pts.material.opacity = Math.max(0, b.life)
+    b.pts.material.opacity = Math.max(0, b.life * b.life)
     if (b.life <= 0){
       scene.remove(b.pts)
       b.pts.geometry.dispose(); b.pts.material.dispose()
       fwBursts.splice(i, 1)
     }
   }
+  for (let i = fwSmoke.length - 1; i >= 0; i--){
+    const s = fwSmoke[i]
+    s.life -= dt / s.max
+    s.puff.position.y += dt * 0.55
+    s.puff.position.x += dt * 0.22
+    const k = Math.max(0, s.life)
+    s.puff.material.opacity = k * k * 0.26
+    s.puff.scale.setScalar(s.puff.scale.x + dt * 3.4)
+    if (s.life <= 0){
+      scene.remove(s.puff)
+      s.puff.material.dispose()
+      fwSmoke.splice(i, 1)
+    }
+  }
+  /* the flash decays; it lights the street and, in rain, the wet road */
+  fwFlash = Math.max(0, fwFlash - dt * 1.6)
+  fwLight.intensity = fwFlash * 260
+  const glowK = fwFlash * (0.045 + clamp(atm.wet, 0, 1) * 0.16 + clamp(atm.snow, 0, 1) * 0.06)
+  fwGround.material.opacity = glowK * (timeIsNight ? 1 : 0.45)
 
   miniRedraw -= dt
   if (miniRedraw <= 0){
@@ -5532,6 +5626,7 @@ if (import.meta.env && import.meta.env.DEV){
     get map(){ return map }, get mapLoading(){ return mapLoading },
     rain, streaks, streakMat, peds, cat, get rainLevel(){ return state.rainLevel || 1 },
     get fireworks(){ return state.fireworks }, get fwBursts(){ return fwBursts },
+    get fwSmoke(){ return fwSmoke }, get fwLevel(){ return state.fwLevel },
     buildings: bldgGroups, ARCHETYPES, DISTRICT_PROFILES, buildingMats,
     charMats, renderer,
     train, signals, trackway, setSignal, VEHICLE_TYPES, platformPeople, railMats,
@@ -5549,7 +5644,19 @@ if (import.meta.env && import.meta.env.DEV){
                min: b.min.toArray(), max: b.max.toArray() }
     },
     /* deterministic test pump: advance the exact per-frame logic without rAF */
-    tick(dt, t){ updateWorld(dt == null ? 1/60 : dt, t == null ? tGlobal + 1/60 : t, false) }
+    tick(dt, t){ updateWorld(dt == null ? 1/60 : dt, t == null ? tGlobal + 1/60 : t, false) },
+    /* clear live fireworks and restart the deterministic seed, so a test
+       can measure one firework intensity without inheriting the last */
+    fwReset(){
+      fwBursts.forEach(b => { scene.remove(b.pts); b.pts.geometry.dispose(); b.pts.material.dispose() })
+      fwBursts.length = 0
+      fwSmoke.forEach(s => { scene.remove(s.puff); s.puff.material.dispose() })
+      fwSmoke.length = 0
+      fwFlash = 0
+      fwNext = 0
+      fwSeed = 20260806
+      return fwBursts.length
+    }
   }
 }
 
@@ -5562,7 +5669,7 @@ if (SHOT){
   const targetP = Math.min(1, Math.max(0, parseFloat(sp.get('p') || '0.5')))
   const time = sp.get('time') || 'night'
   const weather = sp.get('weather') || 'rain'
-  const settle = Math.max(1, parseInt(sp.get('frames') || '260', 10))
+  let settle = Math.max(1, parseInt(sp.get('frames') || '260', 10))
   const out = sp.get('out') || 'shot'
 
   document.getElementById('intro').classList.add('done')
@@ -5587,13 +5694,80 @@ if (SHOT){
      exact same per-frame logic here, let the atmosphere tween settle,
      then render once and read the frame back. */
   const dt = 1 / 60
-  for (let i = 0; i < settle; i++) updateWorld(dt, i * dt, false)
+  /* FIREWORKS SHOTS (?fw=low|medium|high) must visibly show a burst. The
+     cadence is deterministic, so we advance to a moment we know has a
+     live burst inside it, and aim the camera at the skyline over the
+     water rather than whatever the chapter happens to be framing. */
+  const fwLevel = sp.get('fw')
+  let fwBurstsInFrame = 0
+  let steps = 0
+  if (fwLevel){
+    state.fireworks = true
+    state.fwLevel = fwLevel
+    fwSeed = 20260806
+    const fwBtnEl = $('atmos-fireworks')
+    if (fwBtnEl) fwBtnEl.classList.add('on')
+    const fwLv = $('atmos-fw-levels')
+    if (fwLv){
+      fwLv.hidden = false
+      fwLv.querySelectorAll('button').forEach(o => o.classList.toggle('on', o.dataset.fw === fwLevel))
+    }
+    /* frame the skyline: camera on the street, looking up and down it */
+    const camZ = Math.max(-140, Math.min(targetP >= 0.945 ? -150 : -60, -60))
+    camera.position.set(6, 4.2, camZ)
+    camera.lookAt(0, 62, camZ - 150)
+    state.p = targetP
+    /* step forward until a burst has expanded — capturing on the first frame
+       would photograph a tight cluster at the launch point rather than a
+       burst. LOW's cadence is slow and only one burst exists at a time. */
+    steps = 0
+    const wantBursts = fwLevel === 'high' ? 2 : 1
+    while (steps < 3600 &&
+           fwBursts.filter(b => b.life < 0.92 && b.life > 0.68).length < wantBursts){
+      updateWorld(dt, steps * dt, false)
+      steps++
+    }
+    /* Capture exactly at the burst. The default settle count would pump a
+       further four seconds of simulation and the burst would be gone. */
+    settle = steps
+  }
+  /* Continue pumping forward from wherever the fireworks search left off.
+     Re-running the loop from zero would advance the clock a second time
+     and run past the very burst we just found. */
+  let pumped = fwLevel ? steps : 0
+  for (; pumped < settle; pumped++) updateWorld(dt, pumped * dt, false)
+  /* The camera is aimed AFTER settling: the render loop drives it from
+     scroll position and would otherwise overwrite any viewpoint chosen
+     here, which is exactly how the burst ended up off-screen before. */
+  if (fwLevel){
+    camera.position.set(6, 4.6, -62)
+    camera.lookAt(0, 58, -168)
+    camera.updateMatrixWorld(true)
+    camera.matrixWorldInverse.copy(camera.matrixWorld).invert()
+    const frustum = new THREE.Frustum()
+    frustum.setFromProjectionMatrix(
+      new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
+    fwBurstsInFrame = fwBursts.filter(b => {
+      b.pts.geometry.computeBoundingSphere()
+      return frustum.intersectsObject(b.pts)
+    }).length
+  }
   composer.render()
   state.rendered++
   const pre = document.createElement('pre')
   pre.id = 'png'
   pre.textContent = renderer.domElement.toDataURL('image/png')
   document.body.appendChild(pre)
+  if (fwLevel){
+    const f = document.createElement('pre')
+    f.id = 'fwstats'
+    f.textContent = JSON.stringify({
+      level: fwLevel, bursts: fwBursts.length, smoke: fwSmoke.length,
+      inFrustum: fwBurstsInFrame, flash: +fwFlash.toFixed(3),
+      steps, settle, pumped, fwNext: +fwNext.toFixed(2), simT: +(pumped * dt).toFixed(2)
+    })
+    document.body.appendChild(f)
+  }
   document.title = 'SHOT:' + out
 
   /* Objective visual verification. This model cannot see images, so
