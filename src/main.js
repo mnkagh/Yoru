@@ -1068,22 +1068,110 @@ const railSignal = new THREE.Group()
 
 /* --- people ---------------------------------------------------------------
    Full modular characters (src/characters.js): legs, shoes, torso, arms,
-   hands, neck, head, hair and accessories, merged per material. Population
-   size and gait come from the district profile, so Shinjuku is crowded
-   and fast and Nakameguro is slow and thin. */
+   hands, neck, head, hair and accessories, merged per material.
+
+   People walk on the PAVEMENT (the carriageway runs to x +/-5.0 and the
+   kerb line is 6.6), so each walker owns a kerb-side lane and turns back
+   at the end of it. They previously ranged across x -8..8, which put most
+   of them walking down the middle of the road. */
 const charMats = makeCharacterMaterials()
 const peds = []
-const pedZones = [
-  { x:[-8,8], z:[-44,-57], n: IS_TOUCH?4:7 },
-  { x:[-2.6,2.6], z:[-63,-80], n: IS_TOUCH?2:4 },
-  { x:[-5,5], z:[-86,-101], n: IS_TOUCH?3:5 }
-]
+const PAVE_IN = 5.15        /* just inside the kerb face */
+const PAVE_OUT = 6.5         /* the outer edge of the 1.6m pavement */
+const pedZones = []
+/* one kerb-side lane per district stretch, so the street is populated the
+   whole way rather than in three pockets */
+for (let z = 4; z > -142; z -= 11){
+  const dist = districtAtZ(z)
+  /* the river crossing has no pavement to walk along */
+  const overRiver = Math.abs(z + 61) < 5
+  for (const side of [-1, 1]){
+    if (overRiver) continue
+    pedZones.push({
+      x: side < 0 ? [-PAVE_OUT, -PAVE_IN] : [PAVE_IN, PAVE_OUT],
+      z: [z - 4.5, z + 4.5],
+      n: IS_TOUCH ? 1 : ((z % 3 === 0) ? 2 : 1),
+      dist
+    })
+  }
+}
+/* the scramble crossing gets a real crowd, because that is what a
+   scramble crossing is */
+pedZones.push({ x: [-8, 8], z: [-53.5, -46.5], n: IS_TOUCH ? 3 : 9, crossing: true })
+
+/* ---------------- snow accumulation ----------------
+   Snow does not only fall, it settles. Roofs, car bonnets and pavements
+   carry a white layer whose thickness follows the snow amount, and
+   footprints appear in it. This is the difference between "snow is
+   falling" and "it snowed in Tokyo". */
+const snowCaps = []
+const SNOW_CAP_MAT = new THREE.MeshBasicMaterial({ color: 0xeaf1f8, transparent: true, opacity: 0 })
+{
+  const capGeo = new THREE.BoxGeometry(1, 0.1, 1)
+  const upAxis = new THREE.Vector3(0, 1, 0)
+  bldgGroups.forEach(g => {
+    const u = g.userData
+    const cap = new THREE.Mesh(capGeo, SNOW_CAP_MAT)
+    cap.scale.set(u.w * 1.02, 1, u.d * 1.02)
+    cap.position.y = (u.archetype === 'traditional' ? u.height + 1.2 : u.height + 0.35)
+    cap.position.applyAxisAngle(upAxis, g.rotation.y).add(g.position)
+    cap.rotation.y = g.rotation.y
+    cap.updateMatrix()
+    scene.add(cap)
+    snowCaps.push(cap)
+  })
+  cars.forEach(c => {
+    const u = c.userData
+    if (u.kind === 'bicycle') return
+    const spec = VEHICLE_TYPES[u.kind] || VEHICLE_TYPES.hatchback
+    const cap = new THREE.Mesh(capGeo, SNOW_CAP_MAT)
+    cap.scale.set(spec.W * 0.9, 1, spec.L * (u.kind === 'bus' ? 0.88 : 0.44))
+    const capY = u.kind === 'bus' ? 3.2 : (u.kind === 'van' || u.kind === 'truck') ? 1.6 : 1.3
+    cap.position.y = capY
+    cap.userData.follow = c
+    scene.add(cap)
+    snowCaps.push(cap)
+  })
+  /* footprints in the snow on the pavements */
+  const footGeo = new THREE.PlaneGeometry(0.16, 0.3)
+  const footMat = new THREE.MeshBasicMaterial({ color: 0x93a7bc, transparent: true, opacity: 0 })
+  const feet = new THREE.InstancedMesh(footGeo, footMat, 96)
+  const dummyS = new THREE.Object3D()
+  let fi = 0
+  for (let i = 0; i < 96; i++){
+    const z = 4 - Math.random() * 130
+    const side = Math.random() < 0.5 ? -1 : 1
+    dummyS.position.set(side * (5.3 + Math.random() * 1.0), 0.05, z)
+    dummyS.rotation.set(-Math.PI / 2, 0, Math.random() * 0.4 + (side > 0 ? 0 : Math.PI))
+    dummyS.scale.setScalar(1)
+    dummyS.updateMatrix()
+    feet.setMatrixAt(fi++, dummyS.matrix)
+  }
+  feet.count = fi
+  feet.instanceMatrix.needsUpdate = true
+  scene.add(feet)
+  snowCaps.push(feet)
+}
+
+/* the train's roof takes snow too: roof height is carriage floor 1.15 +
+   body 3.6, less the roof cap */
+{
+  const capGeo = new THREE.BoxGeometry(2.6, 0.1, 1)
+  for (let i = 0; i < 4; i++){
+    const cap = new THREE.Mesh(capGeo, SNOW_CAP_MAT)
+    cap.position.set(0, 4.5, -i * 20.9)
+    scene.add(cap)
+    snowCaps.push(cap)
+  }
+}
+
 function makePed(zone){
   const g = buildCharacter({
     seed: (pedSeed += 104729), materials: charMats, parent: city
   })
   const r = mulberry(pedSeed)
-  g.position.set(zone.x[0]+r()*(zone.x[1]-zone.x[0]), 0, zone.z[0]+r()*(zone.x[1]-zone.z[0]))
+  g.position.set(zone.x[0]+r()*(zone.x[1]-zone.x[0]), 0, zone.z[0]+r()*(zone.z[1]-zone.z[0]))
+  g.rotation.y = r() < 0.5 ? Math.PI / 2 : -Math.PI / 2
   g.userData.zone = zone
   g.userData.dir = r() < 0.5 ? 1 : -1
   g.userData.speed = 0.35 + r() * 0.55
@@ -4721,6 +4809,7 @@ function dressEnvironment(world){
     const k = kinds[i % kinds.length]
     /* a bicycle belongs on the kerb, not the carriageway */
     c.visible = u.kind === k
+    u.districtOk = u.kind === k
     const wantX = (u.dir > 0 ? LANE.out : LANE.in) + (k === 'bicycle' ? -u.dir * 4.2 : 0)
     u.laneX = wantX
   })
@@ -5282,6 +5371,31 @@ function updateWorld(dt, t, doRender = true){
       0.12 + night * 0.07 + rainK * 0.03 + snowK * 0.05)
   }
 
+  /* snow accumulation thickens with the shared intensity, and footprints
+     only appear once there is enough snow to hold them */
+  {
+    const INTENS = state.rainLevel || 1
+    const depth = clamp(atm.snow, 0, 1) * Math.min(1.7, Math.max(0.5, INTENS))
+    SNOW_CAP_MAT.opacity = clamp(depth * 1.15, 0, 1)
+    snowCaps.forEach(c => {
+      if (c.userData.follow){
+        const v = c.userData.follow
+        c.position.set(v.position.x, c.position.y, v.position.z)
+        c.rotation.y = v.rotation.y
+        c.updateMatrix()
+      }
+      if (c.isInstancedMesh && c.material === SNOW_CAP_MAT) c.visible = depth > 0.12
+      if (c.isMesh && c.userData.follow) c.visible = depth > 0.06
+    })
+    /* footprints live on their own material, revealed only by depth */
+    const feet = snowCaps[snowCaps.length - 1]
+    if (feet && feet.isInstancedMesh){
+      feet.material.opacity = clamp((depth - 0.25) * 0.9, 0, 0.55)
+      feet.visible = depth > 0.25
+    }
+    /* the snow sheet and the facade wash already follow the same value */
+  }
+
   /* --- the train event ----------------------------------------------------
      The consist moves, decelerates into the platform, opens its doors,
      departs and wraps. Audio and the door glow follow the same state. */
@@ -5335,8 +5449,16 @@ function updateWorld(dt, t, doRender = true){
   })
   trainHit.position.set(trackway.trackX, 2.6, train.position.z)
   cars.forEach(c => {
-    if (!c.visible) return
     const u = c.userData
+    /* snow puts bicycles away and thins the traffic. Visibility is the AND of
+       the district's mix and the weather, and is recomputed every frame
+       BEFORE the early-out: testing `visible` first would hide a bicycle
+       for good and clearing the sky would never bring it back. */
+    const snowK = clamp(atm.snow, 0, 1)
+    const weatherHide = (u.kind === 'bicycle' && snowK >= 0.15)
+    u.weatherHidden = weatherHide
+    c.visible = (u.districtOk !== false) && !weatherHide
+    if (!c.visible) return
     const laneX = u.laneX === undefined ? (u.dir > 0 ? LANE.out : LANE.in) : u.laneX
     /* vehicles stop at the stop line on red and amber, and queue behind
        whatever is already stopped rather than driving through it */
@@ -5802,6 +5924,7 @@ if (import.meta.env && import.meta.env.DEV){
       group: bayGroup
     },
     get backgroundLayers(){ return backgroundLayers },
+    get snowCaps(){ return snowCaps },
     /* world-space bounding box of an object, for silhouette assertions */
     bbox(o){
       const b = new THREE.Box3().setFromObject(o)

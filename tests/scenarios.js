@@ -916,6 +916,52 @@ SCENARIOS.regression = async ({ w, d, Y, $, rec, sleep }) => {
   const bg = y.backgroundLayers
   rec('the background city has depth layers', bg && bg.layers >= 3,
       bg ? bg.layers + ' layers, ' + bg.count + ' buildings' : 'none')
+
+  /* ---- people walk on the pavement, not down the road ---- */
+  const onStreet = y.peds.filter(p => p.userData.type !== 'bayped' &&
+    !(p.userData.zone && p.userData.zone.crossing))
+  const inRoad = onStreet.filter(p => {
+    if (p.userData.zone && p.userData.zone.crossing) return false
+    return Math.abs(p.position.x) < 5.1
+  })
+  rec('pedestrians stay out of the carriageway', inRoad.length === 0,
+      inRoad.length + '/' + onStreet.length + ' in the road')
+  const onPave = onStreet.filter(p => {
+    const a = Math.abs(p.position.x)
+    return a >= 5.05 && a <= 6.6
+  })
+  rec('pedestrians use the pavement', onPave.length >= onStreet.length * 0.95,
+      onPave.length + '/' + onStreet.length + ' on the kerb')
+  const crossing = y.peds.filter(p => p.userData.zone && p.userData.zone.crossing)
+  rec('the scramble crossing has a crowd', crossing.length >= 5,
+      crossing.length + ' people crossing')
+
+  /* ---- snow settles rather than only falling ---- */
+  y.atmosphere.set({ time: 'day', weather: 'snow' }, true)
+  y.state.rainLevel = 1.7
+  for (let i = 0; i < 60; i++) y.tick(1/60, 700 + i/60)
+  const caps = y.snowCaps
+  rec('snow accumulates on roofs and vehicles', caps && caps.length > 40,
+      (caps ? caps.length : 0) + ' caps')
+  const capMesh = caps && caps.find(c => c.isMesh)
+  rec('accumulation is visible at HIGH snow', capMesh && capMesh.material.opacity > 0.6,
+      capMesh ? 'opacity ' + capMesh.material.opacity.toFixed(2) : 'none')
+  const feet = caps && caps[caps.length - 1]
+  rec('footprints appear in deep snow', feet && feet.visible && feet.material.opacity > 0,
+      feet ? 'opacity ' + feet.material.opacity.toFixed(2) : 'none')
+  rec('bicycles are put away when it snows',
+      y.cars.filter(c => c.userData.kind === 'bicycle' && c.visible).length === 0,
+      y.cars.filter(c => c.userData.kind === 'bicycle' && c.visible).length + ' still running')
+  y.atmosphere.set({ weather: 'sunny' }, true)
+  for (let i = 0; i < 60; i++) y.tick(1/60, 800 + i/60)
+  /* Clearing the sky must lift the weather veto. Whether a bicycle then
+     appears is the district's business, not the weather's. */
+  rec('no vehicle stays hidden once the snow clears',
+      y.cars.filter(c => c.userData.weatherHidden).length === 0,
+      y.cars.filter(c => c.userData.weatherHidden).length + ' still weather-hidden')
+  rec('visible vehicles return to their district mix',
+      y.cars.filter(c => c.visible).every(c => c.userData.districtOk !== false),
+      y.cars.filter(c => c.visible).length + ' running')
 }
 
 /* ------------------------------------------------------------------ *
