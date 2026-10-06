@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>overlay diag</title>
+<style>html,body{margin:0;height:100%}iframe{border:0;width:1900px;height:900px}</style>
+</head>
+<body>
+<iframe id="f" src="/"></iframe>
+<pre id="out" style="font:11px monospace;color:#0f0;background:#000;padding:8px"></pre>
+<script>
+const f = document.getElementById('f')
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+addEventListener('load', async () => {
+  const w = f.contentWindow, d = f.contentDocument
+  for (let i = 0; i < 60; i++){ await sleep(200); if (w.__yoru) break }
+  await sleep(600)
+  /* dismiss the intro exactly as the visitor does */
+  const b = d.getElementById('enter-tokyo')
+  if (b) b.click()
+  await sleep(1400)
+  const out = []
+  const pts = [[950, 450], [700, 300], [1200, 700], [200, 450], [1700, 450]]
+  for (const [x, y] of pts){
+    let el = d.elementFromPoint(x, y), chain = []
+    while (el && chain.length < 5){
+      const cs = w.getComputedStyle(el)
+      const r = el.getBoundingClientRect()
+      chain.push(el.tagName.toLowerCase() +
+        (el.id ? '#' + el.id : '') +
+        (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '') +
+        ' bg=' + cs.backgroundColor + ' op=' + cs.opacity + ' z=' + cs.zIndex +
+        ' rect=' + Math.round(r.left) + ',' + Math.round(r.top) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height))
+      el = el.parentElement
+    }
+    out.push('AT ' + x + ',' + y + ':')
+    out.push('   ' + chain.join('\n   '))
+  }
+  document.getElementById('out').textContent = out.join('\n')
+})
+</script>
+</body></html>

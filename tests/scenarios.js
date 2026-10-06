@@ -6,8 +6,97 @@
 const SCENARIOS = {}
 
 /* ------------------------------------------------------------------ *
- * DISTRICT DRESSING + CONCIERGE CONTEXT (bible §4/§17)                *
+ * TRAVEL-AGENCY LAYER: DESTINATIONS, STAYS, EXPERIENCES                *
  * ------------------------------------------------------------------ */
+SCENARIOS.agency = async ({ w, d, Y, $, rec, sleep }) => {
+  const y = Y()
+  if (!y) return
+  const wait = () => sleep(300)
+
+  /* the journey text must not paint while the title card is up: two sets
+     of overlapping words read as a black slab across the street */
+/* Headless does not pump rAF, so CSS transitions never advance and a
+     computed opacity stays pinned at its starting value. Remove the
+     transition before asserting, then the final value is readable. */
+  $('chapters').style.transition = 'none'
+  rec('chapters are hidden behind the title card',
+      w.getComputedStyle($('chapters')).opacity === '0',
+      'opacity ' + w.getComputedStyle($('chapters')).opacity)
+  const enter = $('enter-tokyo')
+  if (enter) enter.click()
+  await wait()
+  rec('the title card stays up until the journey begins',
+      w.getComputedStyle($('chapters')).opacity === '0',
+      'chapters opacity ' + w.getComputedStyle($('chapters')).opacity)
+  const begin = $('begin')
+  if (begin) begin.click()
+  await wait()
+  rec('starting the journey reveals the chapters',
+      w.getComputedStyle($('chapters')).opacity !== '0',
+      'opacity ' + w.getComputedStyle($('chapters')).opacity +
+      ' body="' + d.body.className + '" mode=' + (y ? y.state.mode : '?'))
+
+  /* closed panels must not paint at all */
+  ;['location', 'discovery', 'dialogue'].forEach(id => {
+    const cs = w.getComputedStyle($(id))
+    rec(id + ' is not painted while closed',
+        cs.visibility === 'hidden' && cs.opacity === '0',
+        cs.visibility + ' / ' + cs.opacity)
+  })
+
+  /* destinations */
+  const rail = $('dest-rail')
+  rec('a destination rail exists', rail && rail.children.length >= 10,
+      rail ? rail.children.length + ' districts' : 'missing')
+  const firstBody = $('dest-body').textContent.trim()
+  rec('the first district briefing has real copy', firstBody.length > 400,
+      firstBody.length + ' chars')
+  /* every briefing carries the full editorial set (labels are uppercased in
+     CSS, so compare case-insensitively). "about" is prose, not a label. */
+  let complete = 0
+  const REQUIRED = ['see','do','eat','where we would put you','when to go',
+                    'local tip','culture']
+  const incomplete = []
+  for (let i = 0; i < rail.children.length; i++){
+    rail.children[i].click()
+    const t = $('dest-body').textContent.toLowerCase()
+    const prose = ($('dest-body').querySelector('.d-about') || {}).textContent || ''
+    const missing = REQUIRED.filter(k => t.indexOf(k) < 0)
+    if (!missing.length && prose.length > 150) complete++
+    else incomplete.push(rail.children[i].dataset.dest + ':' + missing.join('|'))
+  }
+  rec('every district has the full briefing', complete === rail.children.length,
+      complete + '/' + rail.children.length + (incomplete.length ? ' missing ' + incomplete.join(', ') : ''))
+  /* no dead ends: each briefing offers travel and add-to-journey */
+  const acts = $('dest-body').querySelectorAll('[data-act]')
+  rec('every briefing leads somewhere', acts.length >= 2, acts.length + ' actions')
+  const addBtn = $('dest-body').querySelector('[data-act="add"]')
+  if (addBtn){
+    addBtn.click()
+    rec('a destination can be added to My Tokyo',
+        y.itinerary.some(x => /district briefing/i.test(x.title)),
+        y.itinerary.map(x => x.title).slice(-2).join(' | '))
+  }
+
+  /* stays */
+  const stays = $('stays-list')
+  rec('stays exist', stays && stays.children.length >= 5,
+      stays ? stays.children.length + ' stays' : 'missing')
+  /* experiences */
+  const exps = $('exp-list')
+  rec('experiences exist', exps && exps.children.length >= 6,
+      exps ? exps.children.length + ' experiences' : 'missing')
+  rec('every experience states a duration',
+      exps && Array.from(exps.children).every(c => /\d|hour|AM|PM/.test(c.textContent)))
+
+  /* every district named in the agency layer exists in the world data */
+  const ids = Array.from(rail.children).map(b => b.dataset.dest)
+  rec('every briefed district resolves in world data',
+      ids.every(id => y.DISTRICTS[id]),
+      ids.filter(id => !y.DISTRICTS[id]).join(',') || 'all resolve')
+  rec('Odaiba is a known district', !!y.DISTRICTS.odaiba,
+      y.DISTRICTS.odaiba ? y.DISTRICTS.odaiba.region : 'missing')
+}
 SCENARIOS.districtProfiles = async ({ w, d, Y, $, rec, sleep }) => {
   const y = Y()
   enterSite(d)
@@ -862,7 +951,8 @@ SCENARIOS.regression = async ({ w, d, Y, $, rec, sleep }) => {
 
   /* ---- buildings face the street and keep out of the railway ---- */
   const roadHalf = 5.0
-  const railFrom = -16.9, railTo = -11.1
+  /* the viaduct occupies x -22.7 to -17.3 now */
+  const railFrom = -22.9, railTo = -17.1
   let insideRoad = 0, insideRail = 0, facing = 0, checked = 0
   const offenders = []
   const railOffenders = []
@@ -876,7 +966,9 @@ SCENARIOS.regression = async ({ w, d, Y, $, rec, sleep }) => {
       insideRoad++
       if (offenders.length < 8)
         offenders.push(g.userData.district + '@z' + g.position.z.toFixed(0) +
-          ' x[' + x0.toFixed(1) + ',' + x1.toFixed(1) + ']')
+          ' x[' + x0.toFixed(1) + ',' + x1.toFixed(1) + '] ' +
+          g.userData.archetype + ' d=' + g.userData.d.toFixed(1) +
+          ' w=' + g.userData.w.toFixed(1))
     }
     if (x1 > railFrom && x0 < railTo){
       insideRail++
@@ -1089,7 +1181,8 @@ y.setSignal('red', true)
   tick(2600)
   const z1 = y.train.position.z
   rec('train physically moves', Math.abs(z1 - z0) > 1, z0.toFixed(1) + ' -> ' + z1.toFixed(1))
-  rec('train wheels are on the track', Math.abs(y.train.position.x - y.trackway.trackX) < 0.01)
+  rec('train runs on the elevated guideway', Math.abs(y.train.position.x - y.railX(y.train.position.z)) < 0.05,
+      'train x=' + y.train.position.x.toFixed(2) + ' track x=' + y.railX(y.train.position.z).toFixed(2))
   rec('train has rolling stock of real length', y.train.userData.length > 60,
       y.train.userData.length.toFixed(0) + 'm')
   /* drive the clock to force an arrival, then confirm doors open */
@@ -1123,13 +1216,14 @@ y.setSignal('red', true)
     rec('the waterfront promenade exists', bay.promenade > 40, bay.promenade + 'm of promenade')
     rec('there are people on the waterfront', bay.crowd >= 8, bay.crowd + ' people')
   }
-  /* Odaiba buildings are its own profile: wide and low, not towers */
+  /* Odaiba blocks are DEEP (into the plot) and low, not wide along the
+     street — horizontal massing is the point of the district */
   const od = y.buildings.filter(g => g.userData.district === 'odaiba')
   if (od.length){
-    const meanW = od.reduce((s, g) => s + g.userData.w, 0) / od.length
+    const meanD = od.reduce((s, g) => s + g.userData.d, 0) / od.length
     const meanH = od.reduce((s, g) => s + g.userData.height, 0) / od.length
-    rec('Odaiba buildings are wide and low', meanW > 9 && meanH < 32,
-        'avg ' + meanW.toFixed(1) + 'm wide, ' + meanH.toFixed(1) + 'm tall')
+    rec('Odaiba buildings are deep and low', meanD > 8 && meanH < 32,
+        'avg ' + meanD.toFixed(1) + 'm deep, ' + meanH.toFixed(1) + 'm tall')
   }
   /* the district resolver must know Odaiba too */
   rec('districtAtZ resolves Odaiba', y.districtAtZ(-160) === 'odaiba',

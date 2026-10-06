@@ -2,14 +2,14 @@ import * as THREE from 'three'
 import maplibregl from 'maplibre-gl'
 import { createAtmosphere } from './atmosphere.js'
 import { MEDIA } from './media.js'
-import { DISTRICTS, resolveWorld, districtForTour, conciergeRecommend } from './data/tokyoWorld.js'
+import { DISTRICTS, resolveWorld, districtForTour, conciergeRecommend, DESTINATIONS, STAYS, EXPERIENCES } from './data/tokyoWorld.js'
 import { makeBuildingMaterials, buildBuilding, pickArchetype, ARCHETYPES, DISTRICT_PROFILES } from './buildings.js'
 import {
   makeCharacterMaterials, buildCharacter, dressCharacterForWeather,
   animateCharacter, mulberry
 } from './characters.js'
 import { makeVehicleMaterials, buildVehicle, dressVehicleForWeather, VEHICLE_TYPES } from './vehicles.js'
-import { makeRailMaterials, buildTrackway, buildTrain, updateTrain } from './rail.js'
+import { makeRailMaterials, buildTrackway, buildTrain, updateTrain, railX, railHeading } from './rail.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -284,10 +284,12 @@ const DIST_ENV = {
 
    The left-hand side also has to clear the railway: the viaduct occupies
    x -16.7 to -11.3, so nothing may be built inside that corridor. */
-/* Set back far enough that projecting balconies and awnings still clear
-   the viaduct parapet at x -16.7. */
-const RAIL_CLEAR_X = 22.5
-const ALLEY_X = 7.0
+/* The west building line stands at the west kerb like every other line.
+   It used to be pushed 22m back to clear the railway; the viaduct has
+   since moved out to x -20, so the road is no longer a 45m void with a
+   black rectangle down the middle. */
+const RAIL_CLEAR_X = 11.0
+const ALLEY_X = 8.2
 for(let z = 8; z > -178; z -= 6.4){
   const dist = districtAtZ(z)
   const env = DIST_ENV[dist] || DIST_ENV.shinjuku
@@ -304,19 +306,24 @@ for(let z = 8; z > -178; z -= 6.4){
     /* gap between kerb and facade follows the district street width, and
        the left side is pushed clear of the viaduct */
     let xBase = plaza ? 16 : (alley ? ALLEY_X : env.xBase)
-    if (side < 0) xBase = Math.max(xBase, RAIL_CLEAR_X)
-    const depth  = prof.w[0] + r * (prof.w[1] - prof.w[0])          /* into the block */
-    const front  = 3.6 + ((seed % 100) / 100) * (prof.d[1] - 3.6)   /* along the street */
+    /* the west line is also capped, so the plaza cannot push buildings
+       back into the viaduct */
+    if (side < 0) xBase = Math.min(xBase, RAIL_CLEAR_X)
+    /* Footprint axes. The parts are built with the facade on local +Z, and
+       the group is turned 90 degrees, so local X maps to world Z (ALONG
+       the street) and local Z maps to world X (INTO the block). Passing
+       these the wrong way round is what pushed wide blocks into the
+       carriageway and the railway. */
+    const depthRaw = prof.w[0] + r * (prof.w[1] - prof.w[0])      /* into the block */
+    /* the west line stops short of the viaduct at x -17.1 */
+    const depth = side < 0 ? Math.min(depthRaw, 5.6) : depthRaw
+    const front = 3.6 + ((seed % 100) / 100) * 2.4               /* along the street */
     const floors = Math.round(prof.floors[0] + ((seed % 37) / 37) * (prof.floors[1] - prof.floors[0]))
     const arch = pickArchetype(prof, mulberry(seed))
-    /* Geometry is assembled at the origin and the GROUP is then placed and
-       turned. Baking world coordinates into the parts and rotating the
-       group as well would spin every building about the world origin and
-       scatter them across the carriageway. */
     const b = buildBuilding({
       x: 0, z: 0, dir: 1, district: dist, seed,
       materials: buildingMats, parent: city,
-      profile: { picks: [[arch, 1]], w: [depth, depth], d: [front, front], floors: [floors, floors] }
+      profile: { picks: [[arch, 1]], w: [front, front], d: [depth, depth], floors: [floors, floors] }
     })
     b.group.position.set(side * (xBase + depth / 2), 0, z)
     /* turn the facade to face the road */
@@ -1099,7 +1106,49 @@ for (let z = 4; z > -142; z -= 11){
    scramble crossing is */
 pedZones.push({ x: [-8, 8], z: [-53.5, -46.5], n: IS_TOUCH ? 3 : 9, crossing: true })
 
-/* ---------------- snow accumulation ----------------
+/* ---------------- street lighting ----------------
+   A Tokyo street at night is defined by its lamps. Without them the road
+   between the two kerbs is a black void, which is what read as a black
+   box over the carriageway. Each lamp is a post, an arm, a lit head and
+   a soft pool of light on the road beneath it. */
+const streetLamps = []
+let streetLampPoolMat = null
+let streetLampHeadMat = null
+{
+  const postMat = new THREE.MeshBasicMaterial({ color: 0x23262c })
+  const armMat = new THREE.MeshBasicMaterial({ color: 0x2b2f36 })
+  const headMat = new THREE.MeshBasicMaterial({ color: 0xffe0aa })
+  const poolMat = new THREE.MeshBasicMaterial({
+    color: 0xffd9a0, transparent: true, opacity: 0.10, depthWrite: false,
+    blending: THREE.AdditiveBlending
+  })
+  const postGeo = new THREE.CylinderGeometry(0.075, 0.095, 6.2, 6)
+  const armGeo  = new THREE.BoxGeometry(1.5, 0.07, 0.07)
+  const headGeo = new THREE.BoxGeometry(0.5, 0.16, 0.26)
+  const poolGeo = new THREE.PlaneGeometry(6.2, 6.2)
+  const zs = []
+  for (let z = 6; z > -142; z -= 11) zs.push(z)
+  for (const z of zs){
+    for (const side of [-1, 1]){
+      const x = side * 6.15
+      const post = new THREE.Mesh(postGeo, postMat)
+      post.position.set(x, 3.1, z)
+      const arm = new THREE.Mesh(armGeo, armMat)
+      arm.position.set(x - side * 0.7, 6.0, z)
+      const head = new THREE.Mesh(headGeo, headMat)
+      head.position.set(x - side * 1.4, 5.9, z)
+      const pool = new THREE.Mesh(poolGeo, poolMat)
+      pool.rotation.x = -Math.PI / 2
+      pool.position.set(x - side * 1.6, 0.06, z)
+      city.add(post, arm, head, pool)
+      streetLamps.push({ head, pool, side, base: 1 })
+    }
+  }
+  /* lamps warm up as the light goes, and are off in daylight */
+  streetLampPoolMat = poolMat
+  streetLampHeadMat = headMat
+}
+   /* ---------------- snow accumulation ----------------
    Snow does not only fall, it settles. Roofs, car bonnets and pavements
    carry a white layer whose thickness follows the snow amount, and
    footprints appear in it. This is the difference between "snow is
@@ -2723,6 +2772,122 @@ const TOUR_NAV = {}
 let lastDistrict = null
 
 const toast_placeholder = null
+
+/* ==========================================================================
+   THE TRAVEL-AGENCY LAYER
+   District briefings (about / see / do / eat / stay / when / tip / culture),
+   plus the Stays and Experiences sections. Every block leads somewhere: to
+   the atlas, into My Tokyo, or back into the city — nothing is a dead end.
+   ========================================================================== */
+function buildDestinations(){
+  const rail = $('dest-rail'), body = $('dest-body')
+  if (!rail || !body) return
+  const ORDER = ['shinjuku','nishishinjuku','harajuku','shibuya','nakameguro',
+                 'roppongi','ginza','tsukiji','akihabara','asakusa','odaiba']
+  const ids = ORDER.filter(id => DESTINATIONS[id])
+  const shotFor = {
+    shinjuku:'shinjuku', shibuya:'shibuya', harajuku:'harajuku', asakusa:'asakusa',
+    ginza:'ginza', tsukiji:'tsukiji', nakameguro:'nakameguro', akihabara:'akihabara',
+    roppongi:'roppongi', odaiba:'odaiba'
+  }
+  const show = id => {
+    const d = DESTINATIONS[id]
+    const world = DISTRICTS[id]
+    const mk = MEDIA[shotFor[id] || id]
+    const img = mk && mk.image
+    const gallery = mk && mk.gallery
+    const ref = mk && mk.reference
+    const list = (arr) => '<ul>' + arr.map(x => '<li>' + x + '</li>').join('') + '</ul>'
+    body.innerHTML =
+      '<div>' +
+        '<div class="k idx mono">' + (world ? world.region.toUpperCase() : '') + '</div>' +
+        '<h3>' + (world ? world.name : id) + '</h3>' +
+        '<p class="d-about">' + d.about + '</p>' +
+        '<div class="dest-block"><span class="k">See</span>' + list(d.see) + '</div>' +
+        '<div class="dest-block"><span class="k">Do</span>' + list(d.do) + '</div>' +
+        '<div class="dest-block"><span class="k">Eat</span><p>' + d.eat + '</p></div>' +
+        '<div class="dest-block"><span class="k">Where we would put you</span><p>' + d.stay + '</p></div>' +
+        '<div class="dest-block"><span class="k">When to go</span><p>' + d.when + '</p></div>' +
+        '<div class="dest-block"><span class="k">Local tip</span><p>' + d.tip + '</p></div>' +
+        '<div class="dest-block"><span class="k">Culture</span><p>' + d.culture + '</p></div>' +
+        '<div class="dest-actions">' +
+          '<button class="btn ghost" data-act="travel">Walk to ' + (world ? world.name : id) + ' →</button>' +
+          '<button class="btn ghost" data-act="add">Add to My Tokyo</button>' +
+          (gallery ? '<a class="btn ghost" href="' + gallery.url + '" target="_blank" rel="noopener">Photographs ↗</a>' : '') +
+          (ref ? '<a class="btn ghost" href="' + ref.url + '" target="_blank" rel="noopener">Official guide ↗</a>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div class="dest-shot">' +
+        (img
+          ? '<img src="' + img.url + '" alt="' + (img.alt || d.id) + '" loading="lazy">' +
+            '<div class="cap">' + img.credit + ' · <a href="' + img.source + '" target="_blank" rel="noopener">source</a></div>'
+          : '<div class="cap">No licensed photograph of this district yet — showing the city.</div>') +
+        (id === 'odaiba' && mk && mk.bridge
+          ? '<img src="' + mk.bridge.url + '" alt="' + mk.bridge.alt + '" loading="lazy" style="margin-top:8px">' +
+            '<div class="cap">' + mk.bridge.credit + '</div>' : '') +
+      '</div>'
+    body.querySelector('[data-act="travel"]').addEventListener('click', () => {
+      const tourTop = chaptersEl.offsetTop
+      const span = chaptersEl.offsetHeight - innerHeight
+      const at = TOUR.find(c => (c.district || '').toLowerCase().startsWith(id)) ||
+                TOUR.find(c => (c.district || '').toLowerCase().includes(id.slice(0, 4)))
+      const p = at ? at.at : 0.5
+      window.scrollTo({ top: tourTop + p * span, behavior: 'smooth' })
+      toast('Traveling to ' + (world ? world.name : id))
+    })
+    body.querySelector('[data-act="add"]').addEventListener('click', () => {
+      addToItinerary((world ? world.name : id) + ' — district briefing')
+    })
+    rail.querySelectorAll('button').forEach(b =>
+      b.setAttribute('aria-selected', String(b.dataset.dest === id)))
+  }
+  ids.forEach(id => {
+    const b = document.createElement('button')
+    b.textContent = DISTRICTS[id] ? DISTRICTS[id].name : id
+    b.dataset.dest = id
+    b.setAttribute('role', 'tab')
+    b.addEventListener('click', () => show(id))
+    rail.appendChild(b)
+  })
+  show(ids[0])
+
+  /* ---- stays ---- */
+  const sl = $('stays-list')
+  if (sl) STAYS.forEach((s, i) => {
+    const d = document.createElement('div')
+    d.className = 'dest-item'
+    d.innerHTML = '<span class="n">' + String(i + 1).padStart(2, '0') + ' · ' + s.district + '</span>' +
+      '<div class="t">' + s.name + '</div>' +
+      '<div class="d">' + s.why + '</div>' +
+      '<div class="m">Best for · ' + s.best + '</div>'
+    const b = document.createElement('button')
+    b.className = 'btn ghost'
+    b.style.marginTop = '12px'
+    b.textContent = 'Add to My Tokyo'
+    b.addEventListener('click', () => addToItinerary(s.name))
+    d.appendChild(b)
+    sl.appendChild(d)
+  })
+
+  /* ---- experiences ---- */
+  const el = $('exp-list')
+  if (el) EXPERIENCES.forEach((e, i) => {
+    const d = document.createElement('div')
+    d.className = 'dest-item'
+    d.innerHTML = '<span class="n">' + String(i + 1).padStart(2, '0') + ' · ' + e.district + '</span>' +
+      '<div class="t">' + e.name + '</div>' +
+      '<div class="d">' + e.what + '</div>' +
+      '<div class="m">' + e.dur + ' · for ' + e.for + '</div>'
+    const b = document.createElement('button')
+    b.className = 'btn ghost'
+    b.style.marginTop = '12px'
+    b.textContent = 'Arrange this'
+    b.addEventListener('click', () => addToItinerary(e.name + ' (' + e.district + ')'))
+    d.appendChild(b)
+    el.appendChild(d)
+  })
+}
+buildDestinations()
 
 /* --------------------------- locations ---------------------------- */
 
@@ -5196,6 +5361,9 @@ $('begin').addEventListener('click', startJourney)
 $('explore').addEventListener('click', startJourney)
 function startJourney(){
   state.mode = 'tour'
+  /* the journey text only paints once the title card is gone, so the two
+     sets of words can never overlap on screen */
+  document.body.classList.add('journey')
   $('hero').classList.add('gone')
   setTimeout(() => $('hero').classList.add('hidden'), 1200)
   window.scrollTo({ top: chaptersEl.offsetTop + 10, behavior: 'smooth' })
@@ -5204,6 +5372,7 @@ function startJourney(){
 function dismissHero(){
   if (state.mode === 'tour') return
   state.mode = 'tour'
+  document.body.classList.add('journey')
   $('hero').classList.add('gone')
   setTimeout(() => $('hero').classList.add('hidden'), 1200)
 }
@@ -5371,6 +5540,15 @@ function updateWorld(dt, t, doRender = true){
       0.12 + night * 0.07 + rainK * 0.03 + snowK * 0.05)
   }
 
+  /* lamps come on at dusk: the pool of light on the road is what stops
+     the carriageway reading as a void between the two kerbs */
+  if (streetLampPoolMat && streetLampHeadMat){
+    const on = timeIsNight ? 1 : clamp(1 - atm.light * 1.4, 0, 1)
+    const wet = clamp(atm.wet, 0, 1)
+    streetLampHeadMat.color.setRGB(0.55 + on * 0.45, 0.48 + on * 0.38, 0.34 + on * 0.26)
+    streetLampPoolMat.opacity = on * (0.09 + wet * 0.10)
+  }
+
   /* snow accumulation thickens with the shared intensity, and footprints
      only appear once there is enough snow to hold them */
   {
@@ -5400,7 +5578,7 @@ function updateWorld(dt, t, doRender = true){
      The consist moves, decelerates into the platform, opens its doors,
      departs and wraps. Audio and the door glow follow the same state. */
   const railInfo = updateTrain(train, dt, {
-    trackX: trackway.trackX,
+    trackX: trackway.trackX, railX, railHeading,
     onSound: (kind) => {
       if (!soundOn || !audioCtx) return
       if (kind === 'approach') railSound(0.5, 3.2)
@@ -5905,6 +6083,7 @@ if (import.meta.env && import.meta.env.DEV){
   window.__yoru = {
     atmosphere, showLocation, openDialogue, closeDialogue, openAtlasOn, initMap,
     submitUserText, LOCATIONS, PLACES, PEOPLE, DIALOGUE, DISHES, SHRINES, state, TOUR,
+    DESTINATIONS, STAYS, EXPERIENCES,
     camAt, camAtStatic, applyCamera, camera, showDish, buildDishRail, refreshDishDistrict,
     showShrineDiscovery, closeDiscovery, closeLocation, shrineHits, scene, city,
     showMoment, MEDIA, resolveWorld, districtForTour, DISTRICTS, conciergeRecommend, signs, cars, arcadeCab, dressEnvironment, dressDistrict,
@@ -5916,7 +6095,7 @@ if (import.meta.env && import.meta.env.DEV){
     buildings: bldgGroups, ARCHETYPES, DISTRICT_PROFILES, buildingMats,
     charMats, renderer,
     train, signals, trackway, setSignal, VEHICLE_TYPES, platformPeople, railMats,
-    districtAtZ,
+    districtAtZ, railX, railHeading, streetLamps,
     bay: {
       water: !!bayWater, waterZ: BAY_Z,
       bridge: { towers: 2, deckLength: 190 },
@@ -5952,8 +6131,9 @@ if (import.meta.env && import.meta.env.DEV){
    Lets the build be inspected visually: node tests/shot.cjs <name> <p> <time> <weather>
    opens the real page, waits for the atmosphere to settle, and saves a PNG. */
 if (SHOT){
- try {
-  const sp = new URLSearchParams(location.search)
+  try {
+   const sp = new URLSearchParams(location.search)
+   document.body.classList.add('journey')
   const targetP = Math.min(1, Math.max(0, parseFloat(sp.get('p') || '0.5')))
   const time = sp.get('time') || 'night'
   const weather = sp.get('weather') || 'rain'

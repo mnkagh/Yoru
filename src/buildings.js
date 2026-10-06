@@ -188,14 +188,19 @@ function acUnit(out, x, y, z, ry = 0){
   out.add('plant', box(0.36, 0.24, 0.03, x, y, z + (ry ? 0 : 0.15), ry))
 }
 
-/* fire escape: two flights + landing, on residential archetypes */
+/* fire escape: two landings + a stringer, on residential archetypes.
+   The stringer is built at the origin, rotated, and only THEN translated —
+   rotating an already-translated geometry swings it metres away from the
+   building, which is how a fire escape ended up hanging over the road. */
 function fireEscape(out, x, y, z, dir, depth){
   for (let f = 0; f < 2; f++){
     const yy = y + f * FLOOR
     out.add('metal', box(0.5, 0.05, depth, x, yy, z + dir * (depth / 2 + 0.1)))
-    /* stringer */
-    const g = box(0.06, 0.06, 2.2, x, yy - 0.9, z + dir * (depth / 2 + 1.0))
-    g.rotateX(0.6)
+    /* the diagonal: centre, rotate, then place */
+    const len = 2.4
+    const g = new THREE.BoxGeometry(0.06, 0.06, len)
+    g.rotateX(dir * 0.62)
+    g.translate(x, yy - 0.9, z + dir * (depth / 2 + len / 2 * Math.cos(0.62)))
     out.add('metal', g)
   }
 }
@@ -505,9 +510,10 @@ export const ARCHETYPES = {
       /* a lit paper panel behind the lattice */
       out.add('glassLit', box(w * 0.84, rows * 0.68, 0.05, x, y + rows * 0.36, z + dir * (d / 2 - 0.02)))
     }
-    /* the pitched roof is the whole silhouette here */
-    out.add('roofTile', hipRoof(w * 1.22, d * 1.22, h + 0.55, x, z))
-    out.add('timber', box(w * 1.3, 0.12, d * 1.3, x, h + 0.16, z))
+    /* the pitched roof is the whole silhouette here. Traditional eaves
+       overhang, but not by a fifth of the whole building. */
+    out.add('roofTile', hipRoof(w * 1.09, d * 1.09, h + 0.55, x, z))
+    out.add('timber', box(w * 1.14, 0.12, d * 1.14, x, h + 0.16, z))
     /* hanging lantern under the eave */
     out.add('glassLit', cyl(0.13, 0.26, x + w * 0.3, h - 0.35, z + dir * (d / 2 + 0.5)))
     return h + 1.1

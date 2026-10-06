@@ -79,9 +79,19 @@ nav.solid{background:rgba(18,16,14,.82);backdrop-filter:blur(14px);border-bottom
 
 #tour{position:relative;z-index:10}
 #chapters{position:relative}
+/* The journey text is hidden while the hero title card is up. Both were
+   painting at once, so the two sets of words overlapped and the scrim
+   read as a black slab across the middle of the street. */
+body:not(.journey) #chapters{opacity:0;pointer-events:none}
+body.journey #chapters{opacity:1;transition:opacity .9s ease}
+/* The title card needs contrast for the words, but a full-screen scrim
+   reads as a black slab over the street. Keep it light and push it to the
+   edges, leaving the middle of the frame clear. */
+#hero::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:-1;
+  background:linear-gradient(180deg,rgba(6,5,4,.72) 0%,rgba(6,5,4,.30) 34%,rgba(6,5,4,.30) 66%,rgba(6,5,4,.74) 100%)}
 .chapter{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:110px clamp(20px,8vw,120px);pointer-events:none;position:relative;transition:opacity .6s ease}
-.chapter::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,rgba(10,9,8,.42),rgba(10,9,8,0) 62%)}
-.chapter.right::before{background:linear-gradient(270deg,rgba(10,9,8,.42),rgba(10,9,8,0) 62%)}
+.chapter::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,rgba(10,9,8,.38),rgba(10,9,8,0) 46%)}
+.chapter.right::before{background:linear-gradient(270deg,rgba(10,9,8,.38),rgba(10,9,8,0) 46%)}
 .chapter.dim{opacity:.22}
 .chapter .idx{font-family:var(--mono);font-size:9.5px;letter-spacing:.3em;color:var(--champagne);margin-bottom:20px;position:relative;text-shadow:0 1px 10px rgba(0,0,0,.65)}
 .chapter h2{font-family:var(--serif);font-weight:300;font-size:clamp(30px,5.6vw,80px);line-height:1.04;max-width:17ch;text-transform:uppercase;letter-spacing:.005em;position:relative;text-wrap:balance;text-shadow:0 1px 16px rgba(0,0,0,.65),0 0 3px rgba(0,0,0,.5)}
@@ -114,8 +124,8 @@ nav.solid{background:rgba(18,16,14,.82);backdrop-filter:blur(14px);border-bottom
 .guide-chip .dot{width:5px;height:5px;border-radius:50%;background:currentColor}
 .guide-chip small{display:block;font-size:8px;letter-spacing:.2em;opacity:.7;margin-top:3px;text-transform:none}
 
-#dialogue{position:fixed;z-index:200;left:50%;bottom:clamp(18px,4vh,52px);transform:translate(-50%,14px);width:min(660px,calc(100vw - 40px));max-height:min(72vh,660px);display:flex;flex-direction:column;background:rgba(20,18,15,.97);backdrop-filter:blur(20px);border:1px solid var(--line);opacity:0;pointer-events:none;transition:opacity .45s,transform .45s}
-#dialogue.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#dialogue{position:fixed;z-index:200;left:50%;bottom:clamp(18px,4vh,52px);transform:translate(-50%,14px);width:min(660px,calc(100vw - 40px));max-height:min(72vh,660px);display:flex;flex-direction:column;background:rgba(20,18,15,.97);backdrop-filter:blur(20px);border:1px solid var(--line);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .45s,transform .45s,visibility .45s}
+#dialogue.on{visibility:visible;opacity:1;transform:translate(-50%,0);pointer-events:auto}
 .dlg-head{display:flex;justify-content:space-between;align-items:flex-start;padding:26px 28px 0}
 .dlg-name{font-family:var(--serif);font-size:25px;letter-spacing:.06em}
 .dlg-role{font-family:var(--mono);font-size:8.5px;letter-spacing:.26em;color:var(--champagne);text-transform:uppercase;margin-top:6px}
@@ -246,8 +256,8 @@ footer a:hover,footer a:focus-visible{color:var(--champagne);border-bottom-color
 .dish-links button{text-align:left;background:none;border:1px solid var(--line);color:var(--ivory-dim);font-family:var(--sans);font-size:13px;font-weight:300;padding:13px 16px;cursor:pointer;transition:all .3s}
 .dish-links button:hover,.dish-links button:focus-visible{border-color:var(--champagne);color:var(--champagne);outline:none}
 
-#location{position:fixed;z-index:200;left:50%;bottom:clamp(18px,4vh,52px);transform:translate(-50%,14px);width:min(620px,calc(100vw - 40px));max-height:min(78vh,720px);display:flex;flex-direction:column;overflow-y:auto;background:rgba(20,18,15,.97);backdrop-filter:blur(20px);border:1px solid var(--line);opacity:0;pointer-events:none;transition:opacity .45s,transform .45s;padding:30px clamp(24px,3vw,38px)}
-#location.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#location{position:fixed;z-index:200;left:50%;bottom:clamp(18px,4vh,52px);transform:translate(-50%,14px);width:min(620px,calc(100vw - 40px));max-height:min(78vh,720px);display:flex;flex-direction:column;overflow-y:auto;background:rgba(20,18,15,.97);backdrop-filter:blur(20px);border:1px solid var(--line);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .45s,transform .45s,visibility .45s;padding:30px clamp(24px,3vw,38px)}
+#location.on{opacity:1;visibility:visible;transform:translate(-50%,0);pointer-events:auto}
 .loc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
 .loc-head .cat{font-family:var(--mono);font-size:8.5px;letter-spacing:.26em;color:var(--champagne);text-transform:uppercase}
 .loc-head h3{font-family:var(--serif);font-size:clamp(26px,3.4vw,40px);font-weight:300;line-height:1.08;margin:10px 0 4px}
@@ -274,7 +284,7 @@ footer a:hover,footer a:focus-visible{color:var(--champagne);border-bottom-color
   .brand{font-size:16px}
   .nav-right button{font-size:8.5px;letter-spacing:.16em}
   #dialogue{left:0;right:0;bottom:0;width:100%;max-height:84vh;transform:translateY(18px);border-left:none;border-right:none;border-bottom:none}
-  #dialogue.on{transform:none}
+  #dialogue.on{visibility:visible;transform:none}
   #location{left:0;right:0;bottom:0;width:100%;max-height:86vh;transform:translateY(18px);border-left:none;border-right:none;border-bottom:none}
   #location.on{transform:none}
   .dlg-head,.dlg-body,.dlg-opts,.dlg-tools{padding-left:20px;padding-right:20px}
@@ -361,13 +371,13 @@ body.dlg-typing .dlg-type{display:flex}
 .dish-links{display:flex;flex-direction:column;gap:9px;align-items:flex-start}
 
 /* ===================== discovery panel (shrine and friends) ========== */
-#discovery{position:fixed;z-index:200;left:50%;bottom:clamp(18px,4vh,52px);transform:translate(-50%,14px);width:min(620px,calc(100vw - 40px));max-height:min(78vh,720px);display:flex;flex-direction:column;overflow-y:auto;background:rgba(20,18,15,.97);backdrop-filter:blur(20px);border:1px solid var(--line);opacity:0;pointer-events:none;transition:opacity .45s,transform .45s;padding:30px clamp(24px,3vw,38px)}
-#discovery.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#discovery{position:fixed;z-index:200;left:50%;bottom:clamp(18px,4vh,52px);transform:translate(-50%,14px);width:min(620px,calc(100vw - 40px));max-height:min(78vh,720px);display:flex;flex-direction:column;overflow-y:auto;background:rgba(20,18,15,.97);backdrop-filter:blur(20px);border:1px solid var(--line);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .45s,transform .45s,visibility .45s;padding:30px clamp(24px,3vw,38px)}
+#discovery.on{visibility:visible;opacity:1;transform:translate(-50%,0);pointer-events:auto}
 
 /* ===================== mobile bottom sheets (§46) ===================== */
 @media (max-width:820px){
   #dialogue,#location,#discovery{left:0;right:0;bottom:0;top:auto;transform:translateY(18px);width:100%;max-width:100%;max-height:86vh;border-left:0;border-right:0;border-bottom:0}
-  #dialogue.on,#location.on,#discovery.on{transform:none}
+  #dialogue.on,#location.on,#discovery.on{visibility:visible;transform:none}
   .dlg-head{padding:20px 20px 0}
   .dlg-body,.dlg-opts{padding-left:20px;padding-right:20px}
   .dlg-type,.dlg-state,.dlg-tools{padding-left:20px;padding-right:20px}
@@ -394,6 +404,58 @@ body.dlg-typing .dlg-type{display:flex}
     .chap-media figcaption{margin-top:8px;font:9px/1.6 monospace;letter-spacing:.06em;
       color:rgba(242,236,225,.42)}
     .chap-media figcaption a{color:var(--champagne);opacity:.75}
+  /* --- the travel-agency layer: destinations, stays, experiences --- */
+    #destinations{position:relative;padding:clamp(90px,12vh,150px) clamp(20px,6vw,90px)}
+    .dest-shell{max-width:1180px;margin:0 auto}
+    .dest-head .idx{font-family:var(--mono);font-size:9.5px;letter-spacing:.3em;color:var(--champagne)}
+    .dest-head h2{font-family:var(--serif);font-weight:300;font-size:clamp(30px,4.6vw,60px);
+      text-transform:uppercase;letter-spacing:.01em;margin-top:14px}
+    .dest-lede{font-family:var(--serif);font-style:italic;font-size:clamp(14px,1.5vw,19px);
+      color:var(--ivory-dim);max-width:52ch;line-height:1.7;margin-top:18px}
+    .dest-rail{display:flex;flex-wrap:wrap;gap:8px;margin-top:34px;
+      padding-bottom:20px;border-bottom:1px solid var(--line)}
+    .dest-rail button{background:none;border:1px solid transparent;color:var(--ivory-dim);
+      font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;
+      padding:9px 12px;cursor:pointer;transition:color .25s,border-color .25s}
+    .dest-rail button:hover,.dest-rail button:focus-visible{color:var(--champagne);
+      border-color:var(--champagne);outline:none}
+    .dest-rail button[aria-selected="true"]{color:var(--champagne);border-color:var(--champagne)}
+    .dest-body{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(26px,4vw,58px);
+      margin-top:38px}
+    .dest-body h3{font-family:var(--serif);font-weight:300;font-size:clamp(21px,2.4vw,30px);
+      letter-spacing:.01em;margin:0 0 12px}
+    .dest-body .d-about{font-size:clamp(14px,1.35vw,16px);line-height:1.95;
+      color:rgba(242,236,225,.82);max-width:52ch}
+    .dest-block{margin-top:26px}
+    .dest-block .k{font-family:var(--mono);font-size:9px;letter-spacing:.26em;
+      text-transform:uppercase;color:var(--champagne);display:block;margin-bottom:9px}
+    .dest-block ul{margin:0;padding-left:18px}
+    .dest-block li{font-size:14px;line-height:1.8;color:rgba(242,236,225,.76);margin-bottom:5px}
+    .dest-block p{margin:0;font-size:14px;line-height:1.85;color:rgba(242,236,225,.76);max-width:48ch}
+    .dest-shot{position:relative;align-self:start}
+    .dest-shot img{display:block;width:100%;height:auto;border-radius:2px;
+      filter:saturate(.85) contrast(1.03) brightness(.92)}
+    .dest-shot .cap{margin-top:9px;font:9px/1.6 monospace;letter-spacing:.06em;
+      color:rgba(242,236,225,.42)}
+    .dest-shot .cap a{color:var(--champagne);opacity:.75}
+    .dest-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+    .dest-cols{display:grid;grid-template-columns:1fr 1fr;gap:clamp(26px,4vw,58px);
+      margin-top:clamp(50px,7vh,90px);padding-top:36px;border-top:1px solid var(--line)}
+    .dest-col h3{font-family:var(--serif);font-weight:300;font-size:clamp(19px,2vw,26px);
+      letter-spacing:.02em;text-transform:uppercase;margin:0 0 22px}
+    .dest-item{border-top:1px solid var(--line);padding:18px 0}
+    .dest-item:first-child{border-top:none;padding-top:0}
+    .dest-item .n{font-family:var(--mono);font-size:9px;letter-spacing:.22em;
+      color:var(--champagne);text-transform:uppercase}
+    .dest-item .t{font-family:var(--serif);font-size:clamp(15px,1.5vw,18px);
+      margin:8px 0 7px;line-height:1.35}
+    .dest-item .d{font-size:13.5px;line-height:1.8;color:rgba(242,236,225,.7)}
+    .dest-item .m{font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+      color:rgba(242,236,225,.42);margin-top:8px;text-transform:uppercase}
+    @media (max-width:900px){
+      .dest-body,.dest-cols{grid-template-columns:1fr}
+    }
+
   </style>
 </head>
 <body>
@@ -546,6 +608,29 @@ body.dlg-typing .dlg-type{display:flex}
     <button id="dlg-text" aria-label="Switch to typing" aria-pressed="false">Text</button>
   </div>
   <div class="dlg-state mono" id="dlg-state" role="status"></div>
+</section>
+
+<section id="destinations">
+  <div class="dest-shell">
+    <header class="dest-head">
+      <div class="idx mono">THE TRAVEL AGENCY</div>
+      <h2>Destinations</h2>
+      <p class="dest-lede">Every district on the journey, written the way we would brief you before you went — what it is, what to see, what to eat, where to stand, and when to be there instead.</p>
+      <div class="dest-rail" id="dest-rail" role="tablist" aria-label="Destinations"></div>
+    </header>
+    <article class="dest-body" id="dest-body"></article>
+
+    <div class="dest-cols">
+      <section class="dest-col" aria-labelledby="stays-h">
+        <h3 id="stays-h">Where we would put you</h3>
+        <div id="stays-list"></div>
+      </section>
+      <section class="dest-col" aria-labelledby="exp-h">
+        <h3 id="exp-h">Evenings we arrange</h3>
+        <div id="exp-list"></div>
+      </section>
+    </div>
+  </div>
 </section>
 
 <section id="provisions">

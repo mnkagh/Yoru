@@ -25,8 +25,14 @@ const CYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 10)
 function box(w, h, d, x, y, z){ const g = BOX.clone(); g.scale(w,h,d); g.translate(x,y,z); return g }
 function cylZ(r, len, x, y, z){ const g = CYL.clone(); g.rotateX(Math.PI/2); g.scale(r, len, r); g.translate(x,y,z); return g }
 
+/* Where the elevated line runs. Far enough west that the shopfronts can
+   still stand at the west kerb: the viaduct occupies RAIL_X +/- 2.7, so
+   buildings ending at x -17 clear it exactly. Previously this was -14,
+   which pushed every west-side building 22m back and left a black void
+   down the middle of the road. */
+export const RAIL_X = -20
 /* Commuter car: 20m long, 2.9m wide, 3.6m tall — Yamanote-line scale. */
-const CAR = { L: 20, W: 2.9, H: 3.6, FLOOR_Y: 1.15 }
+export const CAR = { L: 20, W: 2.9, H: 3.6, FLOOR_Y: 1.15 }
 
 export function makeRailMaterials(){
   return {
@@ -122,67 +128,171 @@ function buildCar(rawBins, M, index){
 /* ------------------------------------------------------------- THE TRACK --
    Rails, sleepers, ballast, a viaduct deck, a platform edge with tactile
    paving, and the signal that governs entry to the station. */
+/* The guideway CURVES. Tokyo's elevated lines are never straight for
+   long, and a gentle S through the districts is both accurate and what
+   makes the line read as infrastructure rather than a wall. Every part of
+   the track and the train takes its X from this one function. */
+export function railX(z){
+  return RAIL_X + Math.sin((z + 40) / 58) * 9 + Math.sin((z - 20) / 130) * 4
+}
+/* the bearing at a point, so the train and the rails both turn */
+export function railHeading(z){
+  const d = 0.5
+  return Math.atan2(railX(z - d) - railX(z + d), 2 * d)
+}
+
 export function buildTrackway(parent, M){
   const g = new THREE.Group()
   const railMat = new THREE.MeshBasicMaterial({ color: 0x39424f })
   const sleeperMat = new THREE.MeshBasicMaterial({ color: 0x1a1d22 })
   const ballastMat = new THREE.MeshBasicMaterial({ color: 0x14161b })
   const deckMat = new THREE.MeshBasicMaterial({ color: 0x1b1f26 })
-  const X = -14
-  const Z0 = 12, Z1 = -152
+  const fenceMat = new THREE.MeshBasicMaterial({ color: 0x555c66 })
+  /* The viaduct runs BEHIND the west building line, not through the
+     street. It used to sit at x -14, which forced every west-side
+     building 22m back and left a 45m black void down the middle of the
+     road — the "black box" over the carriageway. */
+  const SX = railX(-14)
+  const Z0 = 12, Z1 = -180
   const len = Z0 - Z1, mid = (Z0 + Z1) / 2
 
-  /* ballast bed and the concrete viaduct deck the track sits on */
-  const ballast = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.5, len), ballastMat)
-  ballast.position.set(X, 0.25, mid)
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.55, len), deckMat)
-  deck.position.set(X, -0.05, mid)
-  /* parapet walls either side of the viaduct */
-  for (const s of [-1, 1]){
-    const p = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.9, len), deckMat)
-    p.position.set(X + s * 2.7, 0.6, mid)
-    g.add(p)
+  /* Every long member is built as short segments placed along the curve,
+     so the viaduct genuinely bends instead of being one long box. */
+  const SEG = 4                                    /* segment length */
+  const nSeg = Math.floor(len / SEG)
+  const pd = new THREE.Object3D()
+  const at = z => railX(z)
+  const place = (mesh, i, z, y, offX = 0) => {
+    const h = railHeading(z)
+    pd.position.set(at(z) + Math.cos(h) * offX, y, z - Math.sin(h) * offX)
+    pd.rotation.set(0, h, 0)
+    pd.scale.set(1, 1, 1)
+    pd.updateMatrix()
+    mesh.setMatrixAt(i, pd.matrix)
   }
-  g.add(ballast, deck)
+
+  /* the viaduct: deck, ballast and the pier caps, all following the curve */
+  const deckGeo  = new THREE.BoxGeometry(5.6, 0.55, SEG + 0.12)
+  const deck = new THREE.InstancedMesh(deckGeo, deckMat, nSeg)
+  const ballastGeo = new THREE.BoxGeometry(4.6, 0.5, SEG + 0.12)
+  const ballast = new THREE.InstancedMesh(ballastGeo, ballastMat, nSeg)
+  for (let i = 0; i < nSeg; i++){
+    const z = Z0 - i * SEG - SEG / 2
+    place(deck, i, z, -0.05)
+    place(ballast, i, z, 0.25)
+  }
+  deck.instanceMatrix.needsUpdate = true
+  ballast.instanceMatrix.needsUpdate = true
+  g.add(deck, ballast)
+
+  /* piers every 12m: this is an elevated line, not a cutting */
+  const nPier = Math.floor(len / 12)
+  const piers  = new THREE.InstancedMesh(new THREE.BoxGeometry(1.5, 8.2, 1.5), deckMat, nPier)
+  const pCaps  = new THREE.InstancedMesh(new THREE.BoxGeometry(4.4, 0.7, 2.6), deckMat, nPier)
+  for (let i = 0; i < nPier; i++){
+    const z = Z0 - 6 - i * 12
+    place(piers, i, z, -4.6)
+    place(pCaps, i, z, -0.5)
+  }
+  piers.instanceMatrix.needsUpdate = true
+  pCaps.instanceMatrix.needsUpdate = true
+  g.add(piers, pCaps)
+
+  /* parapet walls and, above them, the noise barrier every Tokyo elevated
+     line carries — this is what stops it looking like a bare wall */
+  for (const s of [-1, 1]){
+    const par = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 1.0, SEG + 0.12), deckMat, nSeg)
+    const barMat = new THREE.MeshBasicMaterial({ color: 0x6d7684 })
+    const bar = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 1.7, SEG + 0.12), barMat, nSeg)
+    for (let i = 0; i < nSeg; i++){
+      const z = Z0 - i * SEG - SEG / 2
+      place(par, i, z, 0.6, s * 2.7)
+      place(bar, i, z, 2.0, s * 2.85)
+    }
+    par.instanceMatrix.needsUpdate = true
+    bar.instanceMatrix.needsUpdate = true
+    g.add(par, bar)
+    /* barrier posts */
+    const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.1, 1.8, 0.1),
+      fenceMat, Math.floor(len / 4))
+    for (let i = 0; i < posts.count; i++) place(posts, i, Z0 - i * 4, 2.0, s * 2.85)
+    posts.instanceMatrix.needsUpdate = true
+    g.add(posts)
+  }
 
   /* sleepers and rails, instanced along the whole run */
   const nSleep = Math.floor(len / 0.65)
-  const slGeo = new THREE.BoxGeometry(2.5, 0.14, 0.22)
-  const sleepers = new THREE.InstancedMesh(slGeo, sleeperMat, nSleep)
+  const sleepers = new THREE.InstancedMesh(new THREE.BoxGeometry(2.5, 0.14, 0.22), sleeperMat, nSleep)
   const dummy = new THREE.Object3D()
-  for (let i = 0; i < nSleep; i++){
-    dummy.position.set(X, 0.56, Z0 - i * 0.65 - 0.3)
-    dummy.rotation.set(0,0,0)
-    dummy.updateMatrix()
-    sleepers.setMatrixAt(i, dummy.matrix)
-  }
+  for (let i = 0; i < nSleep; i++) place(sleepers, i, Z0 - i * 0.65 - 0.3, 0.56)
   sleepers.instanceMatrix.needsUpdate = true
   g.add(sleepers)
+  /* the two running rails, segmented so they follow the curve */
   for (const s of [-1, 1]){
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.14, len), railMat)
-    rail.position.set(X + s * 0.72, 0.70, mid)
+    const rail = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.09, 0.14, SEG + 0.12), railMat, nSeg)
+    for (let i = 0; i < nSeg; i++) place(rail, i, Z0 - i * SEG - SEG / 2, 0.70, s * 0.72)
+    rail.instanceMatrix.needsUpdate = true
     g.add(rail)
   }
 
-  /* platform: a real edge with tactile paving and a yellow line */
-  const plat = new THREE.Mesh(new THREE.BoxGeometry(6.5, 1.05, 34), deckMat)
-  plat.position.set(X + 5.4, 0.52, -14)
+  /* the station: platform on the FAR side of the track, so the west kerb
+     of the street stays clear and nothing overhangs the carriageway */
+  const plat = new THREE.Mesh(new THREE.BoxGeometry(6.5, 1.05, 40), deckMat)
+  plat.position.set(SX - 6.2, 0.52, -14)
   g.add(plat)
-  const edge = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.1, 34),
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.1, 40),
     new THREE.MeshBasicMaterial({ color: 0x2c3138 }))
-  edge.position.set(X + 2.2, 0.55, -14)
+  edge.position.set(SX - 2.95, 0.55, -14)
   g.add(edge)
-  const tact = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.05, 34),
+  const tact = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.05, 40),
     new THREE.MeshBasicMaterial({ color: 0x8a7524 }))
-  tact.position.set(X + 2.6, 1.06, -14)
+  tact.position.set(SX - 3.4, 1.06, -14)
   g.add(tact)
-  const yellow = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.02, 34),
+  const yellow = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.02, 40),
     new THREE.MeshBasicMaterial({ color: 0xc9a961, transparent: true, opacity: 0.5 }))
-  yellow.position.set(X + 2.95, 1.07, -14)
+  yellow.position.set(SX - 3.75, 1.07, -14)
   g.add(yellow)
 
+  /* station canopy: a curved roof on columns over the platform, with a
+     lit strip underneath — this is what makes it read as a station
+     rather than a slab beside the track */
+  {
+    const roofMat = new THREE.MeshBasicMaterial({ color: 0x2b323c })
+    const roof = new THREE.Mesh(new THREE.CylinderGeometry(7.4, 7.4, 40, 24, 1, true, Math.PI * 0.12, Math.PI * 0.76),
+      roofMat)
+    roof.rotation.z = Math.PI / 2
+    roof.position.set(SX - 6.2, 5.2, -14)
+    roof.material.side = THREE.DoubleSide
+    g.add(roof)
+    /* lit strip under the canopy edge */
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 39),
+      new THREE.MeshBasicMaterial({ color: 0xffe6bb }))
+    strip.position.set(SX - 3.1, 4.6, -14)
+    g.add(strip)
+    /* columns */
+    const colGeo = new THREE.CylinderGeometry(0.16, 0.16, 4.2, 8)
+    const cols = new THREE.InstancedMesh(colGeo, deckMat, 10)
+    for (let i = 0; i < 10; i++){
+      pd.position.set(SX - 9.0, 3.1, -32 + i * 4)
+      pd.rotation.set(0, 0, 0); pd.scale.set(1, 1, 1)
+      pd.updateMatrix(); cols.setMatrixAt(i, pd.matrix)
+    }
+    cols.instanceMatrix.needsUpdate = true
+    g.add(cols)
+    /* a station sign board on the canopy */
+    const signMat = new THREE.MeshBasicMaterial({ color: 0x0f1420 })
+    const board = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.9, 4.4), signMat)
+    board.position.set(SX - 2.7, 3.6, -14)
+    g.add(board)
+    const boardLit = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.55, 3.8),
+      new THREE.MeshBasicMaterial({ color: 0x7fd4ff }))
+    boardLit.position.set(SX - 2.62, 3.6, -14)
+    g.add(boardLit)
+  }
+
   parent.add(g)
-  return { group: g, trackX: X, zTop: Z0, zBot: Z1, platformZ: -14 }
+  return { group: g, trackX: railX(-14), railX, zTop: Z0, zBot: Z1, platformZ: -14 }
 }
 
 /* ------------------------------------------------------------ THE CONSIST */
@@ -287,7 +397,15 @@ export function updateTrain(tr, dt, opts = {}){
     }
   }
 
-  tr.position.set(opts.trackX === undefined ? -14 : opts.trackX, 0, u.z)
+  /* The train sits on the curve: X and heading both come from the same
+     functions the track was built from, so it can never drift off. */
+  const x = typeof opts.railX === 'function' ? opts.railX(u.z) : (opts.trackX === undefined ? RAIL_X : opts.trackX)
+  tr.position.set(x, 0, u.z)
+  tr.rotation.y = typeof opts.railHeading === 'function'
+    ? opts.railHeading(u.z)
+    : Math.PI
+  /* a slight lean into the curve, as a real bogie does */
+  tr.rotation.z = Math.sin((u.z + 40) / 58) * 0.012
 
   /* doors slide, and only at the platform */
   const target = doorsOpen ? 1 : 0

@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>overlay diag 2</title>
+<style>html,body{margin:0;height:100%}iframe{border:0;width:1900px;height:900px}</style>
+</head>
+<body>
+<iframe id="f" src="/"></iframe>
+<pre id="out" style="font:11px monospace;color:#0f0;background:#000;padding:8px"></pre>
+<script>
+const f = document.getElementById('f')
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+addEventListener('load', async () => {
+  const w = f.contentWindow, d = f.contentDocument
+  for (let i = 0; i < 60; i++){ await sleep(200); if (w.__yoru) break }
+  await sleep(500)
+  const b = d.getElementById('enter-tokyo'); if (b) b.click()
+  await sleep(1500)
+  const out = []
+  /* every element whose box covers the centre and which paints something */
+  const cx = 950, cy = 450
+  d.querySelectorAll('*').forEach(el => {
+    const cs = w.getComputedStyle(el)
+    if (cs.display === 'none' || cs.visibility === 'hidden') return
+    if (parseFloat(cs.opacity) === 0) return
+    const r = el.getBoundingClientRect()
+    if (r.width < 40 || r.height < 40) return
+    if (!(cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom)) return
+    const bg = cs.backgroundColor
+    const bgImg = cs.backgroundImage !== 'none'
+    const opaque = bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent'
+    if (!opaque && !bgImg) return
+    out.push(el.tagName.toLowerCase() +
+      (el.id ? '#' + el.id : '') +
+      (typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\s+/).join('.') : '') +
+      '  bg=' + bg + ' img=' + (bgImg ? cs.backgroundImage.slice(0, 70) : 'no') +
+      '  rect=' + [r.left, r.top, r.width, r.height].map(Math.round).join(',') +
+      ' z=' + cs.zIndex + ' pe=' + cs.pointerEvents)
+  })
+  document.getElementById('out').textContent = out.join('\n') || '(nothing opaque at centre)'
+})
+</script>
+</body></html>
