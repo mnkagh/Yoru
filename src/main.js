@@ -753,9 +753,12 @@ for(let z = 4; z > -148; z -= 3.5 + Math.random()*3){
   for(const side of [-1,1]){
     if(Math.random() < 0.3) continue
     const def = signDefs[signIdx++ % signDefs.length]
-    const xBase = alley ? 4.6 : 10.8
-    const y = alley ? 2.2+Math.random()*2.5 : 3+Math.random()*7
-    addSign(def[0], def[1], side*(xBase + Math.random()*1.5), y, z + Math.random()*1.5, alley?0.8:1)
+    /* Signs project from the shopfronts, never over the carriageway: the
+       alley stretch used to hang them at x 4.6, which put a lit panel
+       directly above the traffic. */
+    const xBase = alley ? 6.4 : 10.8
+    const y = alley ? 3.4+Math.random()*2.5 : 3+Math.random()*7
+    addSign(def[0], def[1], side*(xBase + Math.random()*1.2), y, z + Math.random()*1.5, alley?0.8:1)
   }
 }
 
@@ -783,7 +786,9 @@ const konbini = new THREE.Group()
 }
 for(let i=0;i<10;i++){
   const z = -63 - i*2.1
-  const x = (i%2===0?-1:1) * (2.2+Math.random()*1.2)
+  /* strung along the KERB, not across the carriageway: these lanterns
+     used to hang over the traffic for 20m past the river */
+  const x = (i%2===0?-1:1) * (5.9 + (i%3)*0.35)
   const mat = new THREE.MeshBasicMaterial({ color: 0xffb36b, transparent: true, opacity: 0.9 })
   const l = new THREE.Mesh(lanternGeo, mat)
   l.position.set(x, 2.6 + Math.random()*0.6, z)
@@ -1141,7 +1146,10 @@ let streetLampHeadMat = null
       const pool = new THREE.Mesh(poolGeo, poolMat)
       pool.rotation.x = -Math.PI / 2
       pool.position.set(x - side * 1.6, 0.06, z)
-      city.add(post, arm, head, pool)
+      const lampG = new THREE.Group()
+      lampG.add(post, arm, head, pool)
+      lampG.userData.type = 'lamp'
+      city.add(lampG)
       streetLamps.push({ head, pool, side, base: 1 })
     }
   }

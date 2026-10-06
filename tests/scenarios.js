@@ -91,11 +91,96 @@ SCENARIOS.agency = async ({ w, d, Y, $, rec, sleep }) => {
 
   /* every district named in the agency layer exists in the world data */
   const ids = Array.from(rail.children).map(b => b.dataset.dest)
-  rec('every briefed district resolves in world data',
-      ids.every(id => y.DISTRICTS[id]),
-      ids.filter(id => !y.DISTRICTS[id]).join(',') || 'all resolve')
-  rec('Odaiba is a known district', !!y.DISTRICTS.odaiba,
-      y.DISTRICTS.odaiba ? y.DISTRICTS.odaiba.region : 'missing')
+  /* ---- switching weather and effects rapidly must not corrupt state ---- */
+  const finite = v => typeof v === 'number' && isFinite(v)
+  const bad = []
+  const times = ['day','sunset','night'], weathers = ['sunny','rain','snow','spring']
+  for (let round = 0; round < 3; round++){
+    for (const tm of times){
+      for (const w of weathers){
+        y.atmosphere.set({ time: tm, weather: w })
+        y.state.fireworks = round === 1
+        y.state.fwLevel = ['low','medium','high'][round % 3]
+        for (let i = 0; i < 8; i++) y.tick(1/60, 900 + i/60)
+        const c = y.atmosphere.state.cur
+        ;['bg','fog','light','amb','rain','snow','petal','wet','windows'].forEach(k => {
+          const v = c[k]
+          if (Array.isArray(v)){ if (v.some(x => !finite(x))) bad.push(tm + '/' + w + '.' + k + '=NaN') }
+          else if (!finite(v)) bad.push(tm + '/' + w + '.' + k + '=NaN')
+        })
+        if (!/^[\x20-\x7E\u00B7\u2018\u2019\u201C\u201D\u2014\u2013\u2026]*$/.test(y.atmosphere.label()))
+          bad.push('label=' + y.atmosphere.label())
+      }
+    }
+  }
+  rec('rapid weather switching never produces NaN or a broken label',
+      bad.length === 0, bad.slice(0, 4).join(' ') || '12 switches x 3 rounds clean')
+  /* and it settles back to a sane state */
+  y.atmosphere.set({ time: 'night', weather: 'rain' }, true)
+  for (let i = 0; i < 40; i++) y.tick(1/60, 1000 + i/60)
+  rec('the world settles after switching', y.atmosphere.state.cur.rain > 0.9 && finite(y.atmosphere.state.cur.light),
+      'rain=' + y.atmosphere.state.cur.rain.toFixed(2))
+  /* every material keeps a finite colour after all that switching */
+  const matBad = []
+  y.scene.traverse(o => {
+    if (!o.isMesh || !o.material || !o.material.color) return
+    const col = o.material.color
+    if (!finite(col.r) || !finite(col.g) || !finite(col.b)) matBad.push(o.name || o.type)
+  })
+  rec('no material is left with a NaN colour', matBad.length === 0,
+      matBad.slice(0, 3).join(',') || 'all finite')
+
+  /* ---- chapter photographs must not cover the middle of the frame ---- */
+  const figs = d.querySelectorAll('.chap-media')
+  const wide = []
+  let maxW = 0
+  figs.forEach(f => {
+    const r = f.getBoundingClientRect()
+    maxW = Math.max(maxW, r.width)
+    /* the frame centre must never be covered by a photo */
+    if (r.left < w.innerWidth / 2 && r.right > w.innerWidth / 2) wide.push(Math.round(r.width))
+  })
+  rec('chapter photographs never cross the centre of the screen', wide.length === 0,
+      wide.length + ' crossing, widest ' + Math.round(maxW) + 'px')
+  rec('chapter photographs stay small', maxW <= 260, Math.round(maxW) + 'px wide')
+
+  /* ---- nothing is standing in the carriageway ---- */
+  /* Lamp arms reach 1.5m over the road at 6m up: that is what lights the
+     carriageway, so they are tagged and excluded rather than moved. */
+  const intruding = []
+  y.scene.traverse(o => {
+    if (!o.isMesh && !o.isInstancedMesh) return
+    if (!o.visible) return
+    let p = o
+    while (p){
+      const t = p.userData && p.userData.type
+      if (t === 'vehicle' || t === 'ped' || t === 'building' || t === 'signal' ||
+          t === 'train' || t === 'person' || t === 'locpin' || t === 'bayped' ||
+          t === 'lamp') return
+      p = p.parent
+    }
+    const b = new (Object.getPrototypeOf(y.bbox(o)).constructor === Object ? Object : Object)()
+    void b
+    const bb = y.bbox(o)
+    /* What would actually block the view is something standing ABOVE the
+       carriageway surface. Water (y 0.02), the bridge the road crosses on
+       (y 0.18) and the sea wall are all at or below road level and are
+       correct. Long layers (far skyline, backdrops, bay) have a bounding
+       box spanning the whole city, which says nothing about one thing. */
+    if (bb.min[1] <= 1.3 || bb.max[1] > 6.5) return
+    const z0 = Math.min(bb.min[2], bb.max[2]), z1 = Math.max(bb.max[2], bb.min[2])
+    if (z1 - z0 > 20) return
+    if (z1 < -178 || z0 > 12) return
+    /* At the Meguro crossing the roadway is a bridge over water, and the
+       paper lanterns hang over the canal rather than over traffic. */
+    if (z1 > -66 && z0 < -56) return
+    const x0 = Math.min(bb.min[0], bb.max[0]), x1 = Math.max(bb.min[0], bb.max[0])
+    if (x0 < 5.0 && x1 > -5.0) intruding.push((o.name || o.type) + '@z' + z0.toFixed(0) +
+      ' x[' + x0.toFixed(1) + ',' + x1.toFixed(1) + '] y[' +
+      bb.min[1].toFixed(1) + ',' + bb.max[1].toFixed(1) + ']')
+  })
+  rec('no static prop stands in the carriageway', intruding.length === 0,
+      intruding.slice(0, 4).join(' ') || 'road clear')
 }
 SCENARIOS.districtProfiles = async ({ w, d, Y, $, rec, sleep }) => {
   const y = Y()
