@@ -10,6 +10,7 @@ import {
 } from './characters.js'
 import { makeVehicleMaterials, buildVehicle, dressVehicleForWeather, VEHICLE_TYPES } from './vehicles.js'
 import { makeRailMaterials, buildTrackway, buildTrain, updateTrain, railX, railHeading } from './rail.js'
+import { makeBackdropMaterials, buildBackdrops } from './backdrops.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -1148,7 +1149,16 @@ let streetLampHeadMat = null
   streetLampPoolMat = poolMat
   streetLampHeadMat = headMat
 }
-   /* ---------------- snow accumulation ----------------
+   /* ---------------- district backdrops ----------------
+   What each district is actually known for, standing behind the street:
+   Asakusa's pagoda and great gate, Harajuku's shrine forest, rooftop
+   billboards in Shinjuku, Shibuya and Akihabara, Ginza's clock tower,
+   Tsukiji's market sheds, Roppongi's hill. Placed well beyond the
+   frontage line, so nothing here can ever appear in the road. */
+const backdropMats = makeBackdropMaterials()
+const backdrops = buildBackdrops({ parent: city, materials: backdropMats })
+
+/* ---------------- snow accumulation ----------------
    Snow does not only fall, it settles. Roofs, car bonnets and pavements
    carry a white layer whose thickness follows the snow amount, and
    footprints appear in it. This is the difference between "snow is
@@ -5859,6 +5869,28 @@ function updateWorld(dt, t, doRender = true){
       m.userData.base.b * litB * (1 - snowK) + 0.94 * snowK
     )
   })
+
+  /* aerial perspective on the district backdrops: the masses wash toward
+     the fog and dim at night, the lit panels stay bright */
+  {
+    const fr = atm.fog[0] / 255, fg = atm.fog[1] / 255, fb = atm.fog[2] / 255
+    const nk = timeIsNight ? 0.72 : 1
+    for (const k in backdropMats){
+      const m = backdropMats[k]
+      if (!m || !m.color) continue
+      if (!m.userData.base) m.userData.base = m.color.clone()
+      const lit = (k === 'glowA' || k === 'glowB' || k === 'glowC')
+      if (lit){
+        m.color.copy(m.userData.base).multiplyScalar(timeIsNight ? 1 : 0.5)
+        continue
+      }
+      const haze = (k === 'mass' || k === 'massLt' || k === 'hill') ? 0.45 : 0.20
+      m.color.setRGB(
+        m.userData.base.r * (1 - haze) * nk + fr * haze,
+        m.userData.base.g * (1 - haze) * nk + fg * haze,
+        m.userData.base.b * (1 - haze) * nk + fb * haze)
+    }
+  }
 
   /* aerial perspective: distant layers wash toward the fog colour, and
      dim at night so the lit window bands carry the read */
