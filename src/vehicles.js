@@ -71,6 +71,9 @@ export function makeVehicleMaterials(){
     glassLit: new THREE.MeshBasicMaterial({ color: 0x1a2838 }),
     tyre:   new THREE.MeshBasicMaterial({ color: 0x0a0c10 }),
     rim:    new THREE.MeshBasicMaterial({ color: 0x6a7078 }),
+    /* driver and passenger skin/cloth, deliberately plain: a silhouette
+       behind glass, not a portrait */
+    skin: [0xd8b090, 0xc09878, 0xe4c4a8, 0xa88060].map(c => new THREE.MeshBasicMaterial({ color: c })),
     chrome: new THREE.MeshBasicMaterial({ color: 0xb8bec6 }),
     headlight: new THREE.MeshBasicMaterial({ color: 0xfff4d8 }),
     taillight: new THREE.MeshBasicMaterial({ color: 0xc4302a }),
@@ -334,6 +337,49 @@ export const VEHICLE_TYPES = {
 }
 
 /* -------------------------------------------------------------- BUILD ONE */
+/* A driver. Cars, vans, buses and trucks are empty boxes otherwise, and
+   an empty car moving down a street is the single most obvious tell that
+   nobody is inhabiting this world. Seated silhouette only: head, shoulders
+   and torso behind the windscreen, in the driver's position. */
+function driver(bins, M, kind, L, W){
+  const isLeftHandDrive = true
+  const sx = isLeftHandDrive ? -1 : 1
+  if (kind === 'bicycle') return
+  /* seat height by vehicle class: a bus driver sits much higher */
+  const seatY = kind === 'bus' ? 1.62 : kind === 'truck' ? 1.18 : kind === 'van' ? 1.02 : 0.98
+  const zFront = kind === 'bus' ? L * 0.40 : kind === 'truck' ? L * 0.32 : L * 0.16
+  const jx = sx * W * 0.26
+  /* torso */
+  bins.body.push(box(0.34, 0.46, 0.24, jx, seatY + 0.28, zFront))
+  /* shoulders */
+  bins.body.push(box(0.42, 0.12, 0.26, jx, seatY + 0.50, zFront))
+  /* head */
+  bins.skin.push(sph(0.115, jx, seatY + 0.68, zFront))
+  /* arms reaching the wheel */
+  bins.skin.push(box(0.34, 0.09, 0.09, jx + sx * 0.02, seatY + 0.40, zFront + 0.20))
+  /* a passenger or two in a car or taxi */
+  if (kind === 'taxi' || kind === 'hatchback' || kind === 'kei' || kind === 'minivan'){
+    const px = -sx * W * 0.24
+    bins.body.push(box(0.32, 0.42, 0.22, px, seatY + 0.26, zFront - 0.18))
+    bins.skin.push(sph(0.108, px, seatY + 0.62, zFront - 0.18))
+  }
+  /* buses and trucks carry a few more people */
+  if (kind === 'bus'){
+    for (let i = 0; i < 3; i++){
+      const px = (i % 2 === 0 ? -1 : 1) * W * 0.24
+      const pz = L * 0.10 - i * L * 0.13
+      bins.body.push(box(0.32, 0.44, 0.22, px, seatY + 0.22, pz))
+      bins.skin.push(sph(0.108, px, seatY + 0.58, pz))
+    }
+  }
+}
+
+function kind_passengers(type){
+  if (type === 'bus') return 4
+  if (type === 'taxi' || type === 'hatchback' || type === 'kei' || type === 'minivan') return 2
+  return 1
+}
+
 export function buildVehicle(opts){
   const { type, materials: M, seed = 1, parent } = opts
   const spec = VEHICLE_TYPES[type] || VEHICLE_TYPES.hatchback
@@ -355,6 +401,8 @@ export function buildVehicle(opts){
   const bodyMat = M.body[spec.mats[(rng() * spec.mats.length) | 0]]
   const liveBins = new Proxy({}, {
     get(_, k){
+      /* the driver and passengers get their own tone, chosen per vehicle */
+      if (k === 'skin') return key('__skin' + ((seed >>> 8) % 4))
       if (k === 'body'){
         if (!bins.has('__body')) bins.set('__body', [])
         return bins.get('__body')
@@ -363,6 +411,8 @@ export function buildVehicle(opts){
     }
   })
   const w = spec.build(liveBins, M, spec.L, spec.W)
+  /* occupants: nobody drives an empty car */
+  driver(liveBins, M, type, spec.L, spec.W)
 
   const group = new THREE.Group()
   const bodyGroup = new THREE.Group()
@@ -371,7 +421,9 @@ export function buildVehicle(opts){
     const merged = mergeGeometries(list, false)
     if (!merged){ continue }
     merged.computeBoundingSphere()
-    const mat = k === '__body' ? bodyMat : (M[k] || M.chrome)
+    const mat = k === '__body' ? bodyMat
+      : (k.indexOf('__skin') === 0 ? M.skin[Number(k.slice(6)) % M.skin.length]
+      : (M[k] || M.chrome))
     const mesh = new THREE.Mesh(merged, mat)
     mesh.matrixAutoUpdate = false
     mesh.updateMatrix()
@@ -411,6 +463,9 @@ export function buildVehicle(opts){
 
   group.userData = {
     type: 'vehicle', kind: type, dir: 1,
+    /* occupants are geometry now: nobody drives an empty car */
+    hasDriver: type === 'bicycle' ? false : true,
+    passengers: kind_passengers(type),
     speed: spec.speed[0] + rng() * (spec.speed[1] - spec.speed[0]),
     wheels, lights, headMat: M.headlight, tailMat: M.taillight,
     bodyMat, wheelR: w.wheelR, bodyGroup,

@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl'
 import { createAtmosphere } from './atmosphere.js'
 import { MEDIA } from './media.js'
 import { DISTRICTS, resolveWorld, districtForTour, conciergeRecommend } from './data/tokyoWorld.js'
-import { makeBuildingMaterials, buildBuilding, ARCHETYPES, DISTRICT_PROFILES } from './buildings.js'
+import { makeBuildingMaterials, buildBuilding, pickArchetype, ARCHETYPES, DISTRICT_PROFILES } from './buildings.js'
 import {
   makeCharacterMaterials, buildCharacter, dressCharacterForWeather,
   animateCharacter, mulberry
@@ -235,6 +235,8 @@ function addBuilding(x, z, w, h, d, mat){
 }
 
 const farBuildings = []
+let farLayerMats = []
+let backgroundLayers = null
 /* District massing: the street must read as different parts of Tokyo,
    not one repeated block. Heights, widths and street width vary by
    district; landmarks and street character are added per district below. */
@@ -271,9 +273,21 @@ const DIST_ENV = {
   odaiba:       { hMin:6,  hMax:14, wMin:10.0,wMax:17.0, xBase:34 }
 }
 /* --- the street frontage ----------------------------------------------
-   Real modular buildings, placed along both kerbs. Every building's
-   archetype comes from its district profile, so Asakusa is built from
-   traditional lowrises and Shinjuku from towers. */
+   Real modular buildings, placed along both kerbs, FACING THE STREET.
+
+   A building is assembled with its detailed facade (shopfront, windows,
+   awnings) on its local +Z face, so each one is rotated to face the
+   carriageway: 90 degrees, so that face looks inwards. Its footprint is
+   therefore depth-into the block and frontage-along the street, not the
+   other way round — getting this wrong is what put every shopfront at
+   ninety degrees to the road.
+
+   The left-hand side also has to clear the railway: the viaduct occupies
+   x -16.7 to -11.3, so nothing may be built inside that corridor. */
+/* Set back far enough that projecting balconies and awnings still clear
+   the viaduct parapet at x -16.7. */
+const RAIL_CLEAR_X = 22.5
+const ALLEY_X = 7.0
 for(let z = 8; z > -178; z -= 6.4){
   const dist = districtAtZ(z)
   const env = DIST_ENV[dist] || DIST_ENV.shinjuku
@@ -286,21 +300,115 @@ for(let z = 8; z > -178; z -= 6.4){
     const r = (seed * 2654435761 % 1000) / 1000
     if(r < 0.14) continue
     const prof = DISTRICT_PROFILES[dist]
-    /* the gap between kerb and facade follows the district street width */
-    const xBase = plaza ? 16 : (alley ? 6.2 : env.xBase)
+    if (!prof) continue
+    /* gap between kerb and facade follows the district street width, and
+       the left side is pushed clear of the viaduct */
+    let xBase = plaza ? 16 : (alley ? ALLEY_X : env.xBase)
+    if (side < 0) xBase = Math.max(xBase, RAIL_CLEAR_X)
+    const depth  = prof.w[0] + r * (prof.w[1] - prof.w[0])          /* into the block */
+    const front  = 3.6 + ((seed % 100) / 100) * (prof.d[1] - 3.6)   /* along the street */
+    const floors = Math.round(prof.floors[0] + ((seed % 37) / 37) * (prof.floors[1] - prof.floors[0]))
+    const arch = pickArchetype(prof, mulberry(seed))
+    /* Geometry is assembled at the origin and the GROUP is then placed and
+       turned. Baking world coordinates into the parts and rotating the
+       group as well would spin every building about the world origin and
+       scatter them across the carriageway. */
     const b = buildBuilding({
-      x: side * xBase, z, dir: -side, district: dist, seed,
-      materials: buildingMats, parent: city, profile: prof
+      x: 0, z: 0, dir: 1, district: dist, seed,
+      materials: buildingMats, parent: city,
+      profile: { picks: [[arch, 1]], w: [depth, depth], d: [front, front], floors: [floors, floors] }
     })
+    b.group.position.set(side * (xBase + depth / 2), 0, z)
+    /* turn the facade to face the road */
+    b.group.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2
+    b.group.updateMatrixWorld(true)
     bldgGroups.push(b.group)
   }
 }
-for(let i=0;i<70;i++){
-  const w = 8+Math.random()*10, h = 14+Math.random()*34, d = 8+Math.random()*8
-  const x = (Math.random()<0.5?-1:1) * (30+Math.random()*70)
-  const z = -140 - Math.random()*80
-  const m = addBuilding(x, z, w, h, d, bMats[Math.floor(Math.random()*3)])
-  farBuildings.push(m)
+/* The far city: three depth layers so the background is a city and not a
+   ring of boxes. Buildings carry a window band and a parapet, get darker
+   and hazier with distance (aerial perspective), and are thinned so the
+   cost stays low. Layer 3 is the skyline you finish the journey looking
+   back at from Odaiba. */
+{
+  const layerMats = []
+  const mkLayer = (hex, haze) => {
+    const m = new THREE.MeshBasicMaterial({ color: hex })
+    m.userData.haze = haze
+    layerMats.push(m)
+    return m
+  }
+  const nearM = mkLayer(0x1a2028, 0.10)
+  const midM  = mkLayer(0x161d26, 0.32)
+  const farM  = mkLayer(0x141a24, 0.62)
+  const winM  = new THREE.MeshBasicMaterial({ color: 0x6a6455 })
+  const parM  = new THREE.MeshBasicMaterial({ color: 0x22272f })
+  const unit = new THREE.BoxGeometry(1, 1, 1)
+  const bandGeo = new THREE.BoxGeometry(1.02, 0.42, 0.06)
+  const capGeo  = new THREE.BoxGeometry(1.06, 0.1, 0.98)
+
+  /* layer 1: the block behind the street frontage */
+  const L1 = []
+  for (let i = 0; i < 54; i++){
+    const z = 8 - Math.random() * 190
+    const x = (Math.random() < 0.5 ? -1 : 1) * (26 + Math.random() * 26)
+    const w = 7 + Math.random() * 10, h = 10 + Math.random() * 34
+    L1.push([x, h, z, w, Math.random()])
+  }
+  /* layer 2: the middle distance, taller */
+  const L2 = []
+  for (let i = 0; i < 64; i++){
+    const z = 10 - Math.random() * 230
+    const x = (Math.random() < 0.5 ? -1 : 1) * (52 + Math.random() * 60)
+    const w = 10 + Math.random() * 16, h = 16 + Math.random() * 52
+    L2.push([x, h, z, w, Math.random()])
+  }
+  /* layer 3: the far skyline, which is what you see from the rooftop */
+  const L3 = []
+  for (let i = 0; i < 78; i++){
+    const a = -0.35 - Math.random() * 4.55
+    const dist = 190 + Math.random() * 260
+    const w = 14 + Math.random() * 26, h = 24 + Math.random() * 96
+    L3.push([Math.sin(a) * dist, h, 20 - Math.cos(a) * dist, w, Math.random()])
+  }
+  const dummyB = new THREE.Object3D()
+  const build = (list, mat) => {
+    const body = new THREE.InstancedMesh(unit, mat, list.length)
+    const band = new THREE.InstancedMesh(bandGeo, winM, list.length)
+    const cap  = new THREE.InstancedMesh(capGeo, parM, list.length)
+    list.forEach(([x, h, z, w, r], i) => {
+      dummyB.position.set(x, h / 2, z)
+      dummyB.rotation.set(0, 0, 0)
+      dummyB.scale.set(w, h, w * 0.85)
+      dummyB.updateMatrix()
+      body.setMatrixAt(i, dummyB.matrix)
+      /* a lit window band, only on the nearer layers */
+      const hasBand = mat !== farM
+      dummyB.scale.set(w, h * 0.4, w * 0.85 + 0.1)
+      dummyB.position.set(x, h * (0.34 + r * 0.4), z)
+      dummyB.updateMatrix()
+      band.setMatrixAt(i, dummyB.matrix)
+      band.setColorAt(i, new THREE.Color().setRGB(0.5 + r * 0.5, 0.42 + r * 0.4, 0.26 + r * 0.3))
+      /* parapet */
+      dummyB.scale.set(w * 1.06, 0.6 + r * 0.6, w * 0.91)
+      dummyB.position.set(x, h + (0.6 + r * 0.6) / 2, z)
+      dummyB.updateMatrix()
+      cap.setMatrixAt(i, dummyB.matrix)
+      void hasBand
+    })
+    body.instanceMatrix.needsUpdate = true
+    cap.instanceMatrix.needsUpdate = true
+    if (band.instanceColor) band.instanceColor.needsUpdate = true
+    band.frustumCulled = false
+    city.add(body, band, cap)
+  }
+  build(L1, nearM)
+  build(L2, midM)
+  build(L3, farM)
+  /* aerial perspective: the far layers sit behind the haze, and dim
+     further at night so the lit windows carry the read */
+  farLayerMats = layerMats
+  backgroundLayers = { layers: 3, count: L1.length + L2.length + L3.length }
 }
 
 /* distant mountains: low-poly silhouettes on the horizon so the sky
@@ -1368,13 +1476,43 @@ function camAtStatic(p){
 /* ---------------------------- chapters ---------------------------- */
 
 const chaptersEl = $('chapters')
+/* Each chapter carries its district's real, verified photograph, plus a
+   credit line. Districts with no verified still simply have no figure —
+   nothing is invented to fill the gap. */
+const CHAPTER_MEDIA = {
+  Shinjuku: 'shinjuku', 'Nishi-Shinjuku': 'shinjuku', Harajuku: 'harajuku',
+  Shibuya: 'shibuya', Nakameguro: 'nakameguro', Roppongi: 'roppongi',
+  Ginza: 'ginza', Tsukiji: 'tsukiji', Akihabara: 'akihabara',
+  Asakusa: 'asakusa', Odaiba: 'odaiba'
+}
 TOUR.forEach((c, i) => {
   const d = document.createElement('section')
   d.className = 'chapter' + (i % 2 ? ' right' : '')
-    d.innerHTML = '<div class="idx mono">' + c.idx + ' / ' + c.district + '</div>' +
-                  '<h2>' + c.title + '</h2>' +
-                  '<p>' + c.body + '</p>' +
-                  (c.ref ? '<a class="chap-ref mono" href="' + c.ref.url + '" target="_blank" rel="noopener">Official guide ↗</a>' : '')
+  const mk = CHAPTER_MEDIA[c.district]
+  const entry = mk ? MEDIA[mk] : null
+  const img = entry && entry.image
+  const shot = entry && (entry.bridge || null)
+  /* Odaiba gets both: the district and the bridge that reaches it */
+  const pics = entry
+    ? [entry.image, entry.bridge].filter(Boolean)
+    : []
+  const figure = pics.length
+    ? '<figure class="chap-media">' + pics.map((m, k) =>
+        '<img src="' + m.url + '" alt="' + (m.alt || c.district) + '" loading="lazy" data-k="' + k + '">'
+      ).join('') +
+      '<figcaption>' + pics.map(m =>
+        m.credit + ' · <a href="' + m.source + '" target="_blank" rel="noopener">source</a>'
+      ).join('<br>') + '</figcaption></figure>'
+    : ''
+  const refs = []
+  if (c.ref) refs.push('<a class="chap-ref mono" href="' + c.ref.url + '" target="_blank" rel="noopener">Official guide ↗</a>')
+  if (entry && entry.gallery) refs.push('<a class="chap-ref mono" href="' + entry.gallery.url + '" target="_blank" rel="noopener">More photographs ↗</a>')
+  void img; void shot
+  d.innerHTML = '<div class="idx mono">' + c.idx + ' / ' + c.district + '</div>' +
+                '<h2>' + c.title + '</h2>' +
+                figure +
+                '<p>' + c.body + '</p>' +
+                (refs.length ? refs.join('') : '')
   chaptersEl.appendChild(d)
 })
 
@@ -5404,13 +5542,39 @@ function updateWorld(dt, t, doRender = true){
   bMatR = lerp(bMatR, timeIsNight ? 1 : 0.72, 0.05)
   bMatG = lerp(bMatG, timeIsNight ? 0.86 : 0.76, 0.05)
   bMatB = lerp(bMatB, timeIsNight ? 0.68 + winK * 0.1 : 0.84, 0.05)
-  /* snow lands on the walls too: cool-white wash over the facade */
+  /* Snow lands on the walls too: cool-white wash over the facade.
+     Each material KEEPS its own colour and is multiplied by the light,
+     rather than every material being set to the same RGB — doing that
+     flattened concrete, timber, tile and glass into one identical
+     surface and made every building in the city look the same. */
   const snowK = clamp(atm.snow, 0, 1) * 0.55
-  allBuildingMats.forEach(m => m.color.setRGB(
-    bMatR * warmK * 0.5 * (1 - snowK) + 0.82 * snowK,
-    bMatG * warmK * 0.5 * (1 - snowK) + 0.86 * snowK,
-    bMatB * warmK * 0.5 * (1 - snowK) + 0.92 * snowK
-  ))
+  const litR = bMatR * warmK * (0.62 + winK * 0.30)
+  const litG = bMatG * warmK * (0.62 + winK * 0.26)
+  const litB = bMatB * warmK * (0.66 + winK * 0.22)
+  allBuildingMats.forEach(m => {
+    if (!m.userData.base) m.userData.base = m.color.clone()
+    m.color.setRGB(
+      m.userData.base.r * litR * (1 - snowK) + 0.86 * snowK,
+      m.userData.base.g * litG * (1 - snowK) + 0.89 * snowK,
+      m.userData.base.b * litB * (1 - snowK) + 0.94 * snowK
+    )
+  })
+
+  /* aerial perspective: distant layers wash toward the fog colour, and
+     dim at night so the lit window bands carry the read */
+  if (farLayerMats.length){
+    const fr = atm.fog[0] / 255, fg = atm.fog[1] / 255, fb = atm.fog[2] / 255
+    farLayerMats.forEach(m => {
+      if (!m.userData.base) m.userData.base = m.color.clone()
+      const h = m.userData.haze
+      const k = timeIsNight ? 0.7 : 1
+      m.color.setRGB(
+        m.userData.base.r * (1 - h) * k + fr * h,
+        m.userData.base.g * (1 - h) * k + fg * h,
+        m.userData.base.b * (1 - h) * k + fb * h
+      )
+    })
+  }
 
   /* landmarks are silhouettes: they darken with the light so a noon
      tower does not glow at midnight. Skytree keeps aviation beacons. */
@@ -5637,6 +5801,7 @@ if (import.meta.env && import.meta.env.DEV){
       farSkyline: 116, promenade: 150, crowd: bayCrowd.length,
       group: bayGroup
     },
+    get backgroundLayers(){ return backgroundLayers },
     /* world-space bounding box of an object, for silhouette assertions */
     bbox(o){
       const b = new THREE.Box3().setFromObject(o)

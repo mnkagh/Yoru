@@ -653,8 +653,9 @@ export const DISTRICT_PROFILES = {
                     w:[10,18], d:[8,14],  floors:[3,8] }
 }
 
-/* weighted pick from a profile */
-function pickArchetype(profile, rng){
+/* weighted pick from a profile. Exported so the street layout can choose
+   an archetype per plot without duplicating the weighting. */
+export function pickArchetype(profile, rng){
   const total = profile.picks.reduce((s, p) => s + p[1], 0)
   let r = rng() * total
   for (const [name, wgt] of profile.picks){

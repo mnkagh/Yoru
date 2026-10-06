@@ -17,22 +17,52 @@
  *    redirect service) so a 2 MB original never blocks the page.
  *    <img> onerror handlers in main.js hide broken media gracefully.
  *
- * Verified 2026-10-04 via the Commons MediaWiki API (iiprop=url|extmetadata).
+ * Verified 2026-10-04 via the Commons MediaWiki API (iiprop=url|extmetadata);
+ * district image filenames and licences re-verified 2026-10-06, and official
+ * guide URLs checked by HTTP request — five guessed gotokyo.org paths returned
+ * 404 and were therefore left out rather than shipped as dead links.
  */
 
 const filePath = (name, width) =>
   'https://commons.wikimedia.org/wiki/Special:FilePath/' + encodeURIComponent(name) + '?width=' + (width || 800)
 
 export const MEDIA = {
+  /* ---------------- SHINJUKU ---------------- */
+  shinjuku: {
+    image: {
+      type: 'image',
+      url: filePath('Kabukicho.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Kabukicho.jpg',
+      license: 'CC BY-SA 3.0',
+      credit: 'Japanexperterna.se, CC BY-SA 3.0, via Wikimedia Commons',
+      alt: 'Kabukicho, the neon entertainment quarter behind Shinjuku station'
+    },
+    video: null,
+    gallery: {
+      type: 'link',
+      url: 'https://commons.wikimedia.org/wiki/Category:Shinjuku',
+      source: 'Wikimedia Commons',
+      credit: 'Various contributors, see file pages for licences',
+      alt: 'Shinjuku photographs on Commons'
+    },
+    reference: {
+      type: 'link',
+      url: 'https://www.gotokyo.org/en/destinations/western-tokyo/shinjuku/index.html',
+      source: 'Go Tokyo — official Tokyo tourism',
+      credit: 'Tokyo Convention & Visitors Bureau',
+      alt: 'Official Shinjuku guide'
+    }
+  },
+
   /* ---------------- SHIBUYA ---------------- */
   shibuya: {
     image: {
       type: 'image',
-      url: filePath('Shibuya_tokyo.jpg', 800),
-      source: 'https://commons.wikimedia.org/wiki/File:Shibuya_tokyo.jpg',
-      license: 'CC BY-SA 3.0',
-      credit: 'Willswe, CC BY-SA 3.0, via Wikimedia Commons',
-      alt: 'Shibuya Crossing, Tokyo (2003)'
+      url: filePath('Shibuya Crossing.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Shibuya_Crossing.jpg',
+      license: 'CC BY-SA 4.0',
+      credit: 'Landry Miguel, CC BY-SA 4.0, via Wikimedia Commons',
+      alt: 'The scramble crossing in motion, seen from the Hachiko exit'
     },
     video: {
       type: 'video',
@@ -45,6 +75,13 @@ export const MEDIA = {
       credit: 'Basile Morin, CC BY-SA 4.0, via Wikimedia Commons',
       alt: 'The scramble crossing in motion, seen from the Hachiko exit'
     },
+    gallery: {
+      type: 'link',
+      url: 'https://commons.wikimedia.org/wiki/Category:Shibuya',
+      source: 'Wikimedia Commons',
+      credit: 'Various contributors, see file pages for licences',
+      alt: 'Shibuya photographs on Commons'
+    },
     reference: {
       type: 'link',
       url: 'https://www.gotokyo.org/en/destinations/western-tokyo/shibuya/index.html',
@@ -54,9 +91,43 @@ export const MEDIA = {
     }
   },
 
+  /* ---------------- HARAJUKU ---------------- */
+  harajuku: {
+    image: {
+      type: 'image',
+      url: filePath('Takeshita Street.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Takeshita_Street.jpg',
+      license: 'CC0',
+      credit: 'Public domain dedication, via Wikimedia Commons',
+      alt: 'Takeshita Street, Harajuku'
+    },
+    video: null,
+    gallery: {
+      type: 'link',
+      url: 'https://commons.wikimedia.org/wiki/Category:Harajuku',
+      source: 'Wikimedia Commons',
+      credit: 'Various contributors, see file pages for licences',
+      alt: 'Harajuku photographs on Commons'
+    },
+    reference: {
+      type: 'link',
+      url: 'https://www.gotokyo.org/en/destinations/western-tokyo/harajuku/index.html',
+      source: 'Go Tokyo — official Tokyo tourism',
+      credit: 'Tokyo Convention & Visitors Bureau',
+      alt: 'Official Harajuku guide'
+    }
+  },
+
   /* ---------------- ASAKUSA ---------------- */
   asakusa: {
-    image: null, /* no single verified still yet; gallery below, 3D fallback meanwhile */
+    image: {
+      type: 'image',
+      url: filePath('Senso-ji.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Senso-ji.jpg',
+      license: 'CC BY-SA 3.0',
+      credit: 'Felix F., CC BY-SA 3.0, via Wikimedia Commons',
+      alt: 'The main hall of Sensō-ji, Asakusa'
+    },
     gallery: {
       type: 'link',
       url: 'https://commons.wikimedia.org/wiki/Category:Asakusa',
@@ -84,6 +155,168 @@ export const MEDIA = {
     }
   },
 
+  /* ---------------- GINZA ---------------- */
+  ginza: {
+    image: {
+      type: 'image',
+      url: filePath('Ginza.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Ginza.jpg',
+      license: 'Public domain',
+      credit: 'Dtorbill, public domain, via Wikimedia Commons',
+      alt: 'Ginza, Tokyo'
+    },
+    video: null,
+    gallery: {
+      type: 'link',
+      url: 'https://commons.wikimedia.org/wiki/Category:Ginza',
+      source: 'Wikimedia Commons',
+      credit: 'Various contributors, see file pages for licences',
+      alt: 'Ginza photographs on Commons'
+    },
+    /* No first-party tourism page for this district resolved during
+       verification, so no reference link is claimed here. */
+    reference: null
+  },
+
+  /* ---------------- TSUKIJI ---------------- */
+  tsukiji: {
+    image: {
+      type: 'image',
+      url: filePath('Tsukiji Outer Market.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Tsukiji_Outer_Market.jpg',
+      license: 'CC BY-SA 4.0',
+      credit: 'Christophe95, CC BY-SA 4.0, via Wikimedia Commons',
+      alt: 'Tsukiji Outer Market, the working market street'
+    },
+    video: null,
+    gallery: {
+      type: 'link',
+      url: 'https://commons.wikimedia.org/wiki/Category:Tsukiji',
+      source: 'Wikimedia Commons',
+      credit: 'Various contributors, see file pages for licences',
+      alt: 'Tsukiji photographs on Commons'
+    },
+    reference: null
+  },
+
+  /* ---------------- NAKAMEGURO / SAKURA ---------------- */
+  nakameguro: {
+    image: {
+      type: 'image',
+      url: filePath('Meguro River.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Meguro_River.jpg',
+      license: 'CC0',
+      credit: 'Masgatotkaca, CC0, via Wikimedia Commons',
+      alt: 'The Meguro River at Nakameguro'
+    },
+    video: null, /* empty by request: a licensed Nakameguro video goes here */
+    gallery: {
+      type: 'link',
+      url: 'https://commons.wikimedia.org/wiki/Category:Nakameguro',
+      source: 'Wikimedia Commons',
+      credit: 'Various contributors, see file pages for licences',
+      alt: 'Nakameguro photographs, including blossom season'
+    },
+    reference: {
+      type: 'link',
+      url: 'https://www.japan.travel/en/spot/377/',
+      source: 'Japan Travel (JNTO)',
+      credit: 'Japan National Tourism Organization',
+      alt: 'Meguro River cherry blossoms guide'
+    }
+  },
+
+  /* ---------------- AKIHABARA ---------------- */
+  akihabara: {
+    image: {
+      type: 'image',
+      url: filePath('Akihabara at night.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Akihabara_at_night.jpg',
+      license: 'CC BY-SA 2.0',
+      credit: 'Stefan Le D., CC BY-SA 2.0, via Wikimedia Commons',
+      alt: 'Akihabara at night, signboards over the street'
+    },
+    video: null,
+    gallery: {
+      type: 'link',
+      url: 'https://commons.wikimedia.org/wiki/Category:Akihabara',
+      source: 'Wikimedia Commons',
+      credit: 'Various contributors, see file pages for licences',
+      alt: 'Akihabara photographs on Commons'
+    },
+    reference: null
+  },
+
+  /* ---------------- ROPPONGI ---------------- */
+  roppongi: {
+    image: {
+      type: 'image',
+      url: filePath('Roppongi Hills.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Roppongi_Hills.jpg',
+      license: 'CC BY 3.0',
+      credit: 'Jordy Meow, CC BY 3.0, via Wikimedia Commons',
+      alt: 'Roppongi Hills, the hilltop art and design complex'
+    },
+    video: null,
+    gallery: {
+      type: 'link',
+      url: 'https://commons.wikimedia.org/wiki/Category:Roppongi',
+      source: 'Wikimedia Commons',
+      credit: 'Various contributors, see file pages for licences',
+      alt: 'Roppongi photographs on Commons'
+    },
+    reference: null
+  },
+
+  /* ---------------- ODAIBA ---------------- */
+  odaiba: {
+    image: {
+      type: 'image',
+      url: filePath('Odaiba Tokyo.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Odaiba_Tokyo.jpg',
+      license: 'CC BY-SA 2.0',
+      credit: 'Ian Muttoo, CC BY-SA 2.0, via Wikimedia Commons',
+      alt: 'Odaiba, the waterfront district across the bay'
+    },
+    bridge: {
+      type: 'image',
+      url: filePath('Rainbow Bridge Tokyo.jpg', 1000),
+      source: 'https://commons.wikimedia.org/wiki/File:Rainbow_Bridge_Tokyo.jpg',
+      license: 'CC BY-SA 3.0',
+      credit: 'Rum, CC BY-SA 3.0, via Wikimedia Commons',
+      alt: 'The Rainbow Bridge linking Odaiba to the rest of the city'
+    },
+    video: null,
+    gallery: {
+      type: 'link',
+      url: 'https://commons.wikimedia.org/wiki/Category:Odaiba',
+      source: 'Wikimedia Commons',
+      credit: 'Various contributors, see file pages for licences',
+      alt: 'Odaiba photographs on Commons'
+    },
+    reference: null
+  },
+
+  /* ---------------- LANDMARKS ---------------- */
+  landmarks: {
+    skytree: {
+      type: 'image',
+      url: filePath('Tokyo Skytree.jpg', 800),
+      source: 'https://commons.wikimedia.org/wiki/File:Tokyo_Skytree.jpg',
+      license: 'CC BY-SA 4.0',
+      credit: 'ShaiHuludKitty, CC BY-SA 4.0, via Wikimedia Commons',
+      alt: 'Tokyo Skytree, the broadcasting tower east of Asakusa'
+    },
+    tower: {
+      type: 'image',
+      url: filePath('Tokyo Tower.jpg', 800),
+      source: 'https://commons.wikimedia.org/wiki/File:Tokyo_Tower.jpg',
+      license: 'CC BY-SA 3.0',
+      credit: 'Subcommandante, CC BY-SA 3.0, via Wikimedia Commons',
+      alt: 'Tokyo Tower, red and white, south-west of Roppongi'
+    }
+  },
+
   /* ---------------- RAMEN ---------------- */
   ramen: {
     image: {
@@ -103,7 +336,7 @@ export const MEDIA = {
     }
   },
 
-  /* ---------------- SAKURA / NAKAMEGURO ---------------- */
+  /* ---------------- SAKURA (kept: panels and chapter links read this key) -------- */
   sakura: {
     image: null,
     gallery: {
@@ -113,7 +346,7 @@ export const MEDIA = {
       credit: 'Various contributors, see file pages for licences',
       alt: 'Nakameguro photographs, including blossom season'
     },
-    video: null, /* empty by request: a licensed Nakameguro video goes here */
+    video: null,
     reference: {
       type: 'link',
       url: 'https://www.japan.travel/en/spot/377/',

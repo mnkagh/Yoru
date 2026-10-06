@@ -859,6 +859,63 @@ SCENARIOS.regression = async ({ w, d, Y, $, rec, sleep }) => {
 
   rec('reduced-motion preference is readable at runtime', typeof y.reduced === 'boolean',
       'reduced=' + y.reduced)
+
+  /* ---- buildings face the street and keep out of the railway ---- */
+  const roadHalf = 5.0
+  const railFrom = -16.9, railTo = -11.1
+  let insideRoad = 0, insideRail = 0, facing = 0, checked = 0
+  const offenders = []
+  const railOffenders = []
+  y.buildings.forEach(g => {
+    const b = y.bbox(g)
+    const x0 = Math.min(b.min[0], b.max[0]), x1 = Math.max(b.min[0], b.max[0])
+    const z0 = Math.min(b.min[2], b.max[2]), z1 = Math.max(b.min[2], b.max[2])
+    if (z1 < -176 || z0 > 10) return          /* skip the far skyline ring */
+    checked++
+    if (x0 < roadHalf + 0.6 && x1 > -roadHalf - 0.6){
+      insideRoad++
+      if (offenders.length < 8)
+        offenders.push(g.userData.district + '@z' + g.position.z.toFixed(0) +
+          ' x[' + x0.toFixed(1) + ',' + x1.toFixed(1) + ']')
+    }
+    if (x1 > railFrom && x0 < railTo){
+      insideRail++
+      if (railOffenders.length < 8)
+        railOffenders.push(g.userData.district + '@z' + g.position.z.toFixed(0) +
+          ' x[' + x0.toFixed(1) + ',' + x1.toFixed(1) + '] ' + g.userData.archetype)
+    }
+    /* the detailed facade faces the road: a rotated building's frontage
+       must be the narrow axis in X and the depth the wide one */
+    const rot = Math.abs(Math.abs(g.rotation.y) - Math.PI / 2) < 0.02
+    if (rot) facing++
+  })
+  rec('no building stands in the road', insideRoad === 0,
+      insideRoad + ' intruding: ' + offenders.slice(0, 6).join(' '))
+  rec('no building blocks the railway', insideRail === 0,
+      insideRail + ' inside: ' + railOffenders.join(' '))
+  rec('buildings are turned to face the street', facing === checked,
+      facing + '/' + checked + ' at 90 degrees')
+
+  /* buildings keep their own material colours rather than one flat wash */
+  const bMats = y.buildingMats
+  const cols = new Set()
+  ;['concrete', 'plaster', 'tile', 'timber', 'roofTile', 'metal'].forEach(k => {
+    const m = bMats[k]
+    if (m && m.color) cols.add(k + ':' + m.color.getHexString())
+  })
+  rec('building materials keep distinct colours', cols.size >= 5, cols.size + ' distinct')
+
+  /* every vehicle carries a driver or rider */
+  const occupied = y.cars.filter(c => c.userData.kind === 'bicycle' || c.userData.hasDriver)
+  rec('every vehicle has a driver or rider',
+      y.cars.every(c => c.userData.kind === 'bicycle' || c.userData.hasDriver),
+      y.cars.filter(c => c.userData.hasDriver).length + ' of ' + y.cars.length + ' occupied')
+  void occupied
+
+  /* the background is a city in depth, not a ring of boxes */
+  const bg = y.backgroundLayers
+  rec('the background city has depth layers', bg && bg.layers >= 3,
+      bg ? bg.layers + ' layers, ' + bg.count + ' buildings' : 'none')
 }
 
 /* ------------------------------------------------------------------ *

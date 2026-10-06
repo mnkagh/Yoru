@@ -385,7 +385,16 @@ body.dlg-typing .dlg-type{display:flex}
   .dlg-type input{min-height:44px}
   #loc-add,#loc-save,#loc-atlas,#loc-map,#loc-official,#loc-find,#disc-add,#disc-atlas{min-height:46px;display:inline-flex;align-items:center}
 }
-</style>
+/* each chapter may carry a verified photograph of its district, with a
+       licence credit line beneath it */
+    .chap-media{margin:18px 0 20px;max-width:340px}
+    .chap-media img{display:block;width:100%;height:auto;border-radius:2px;
+      filter:saturate(.82) contrast(1.04) brightness(.9)}
+    .chap-media img + img{margin-top:6px}
+    .chap-media figcaption{margin-top:8px;font:9px/1.6 monospace;letter-spacing:.06em;
+      color:rgba(242,236,225,.42)}
+    .chap-media figcaption a{color:var(--champagne);opacity:.75}
+  </style>
 </head>
 <body>
 
